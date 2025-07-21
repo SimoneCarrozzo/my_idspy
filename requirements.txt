@@ -1,0 +1,10 @@
+pandas==2.2.3
+numpy==2.0.2
+scikit-learn==1.6.1
+torch==2.6.0
+torchvision==0.21.0
+tqdm==4.67.1
+rich==13.7.0
+matplotlib==3.9.4
+hydra-core==1.3.2
+pyclustertend==1.4.9
