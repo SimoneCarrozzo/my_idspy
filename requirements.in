@@ -1,0 +1,10 @@
+pandas
+numpy
+scikit-learn
+torch
+torchvision
+tqdm
+rich
+matplotlib
+hydra-core
+pyclustertend
