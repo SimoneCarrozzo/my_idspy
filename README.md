@@ -26,8 +26,8 @@ ids-framework/
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/Simone-Albero/ids-framework.git
-   cd ids-framework
+   git clone https://github.com/Simone-Albero/idspy.git
+   cd idspy
    ```
 
 2. Create a Python virtual environment:
