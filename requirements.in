@@ -8,3 +8,4 @@ rich
 matplotlib
 hydra-core
 pyclustertend
+pyarrow

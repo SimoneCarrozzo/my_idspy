@@ -73,6 +73,8 @@ pillow==11.3.0
     #   torchvision
 pluggy==1.6.0
     # via pytest
+pyarrow==21.0.0
+    # via -r requirements.in
 pyclustertend==1.9.0
     # via -r requirements.in
 pygments==2.19.2
