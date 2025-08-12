@@ -1,10 +1,12 @@
-# IDS Framework
+# IDSPY
 
-A comprehensive framework for building and evaluating Intrusion Detection Systems (IDS).
+A comprehensive framework for building and evaluating ML-Based Intrusion Detection Systems (IDS).
 
 ## Overview
 
-This framework provides a structured approach to developing intrusion detection solutions, with core functionality organized in the `src` folder. It includes tools for network data preprocessing, attack detection modeling, evaluation metrics, and result visualization tailored specifically for IDS workflows.
+This framework provides a structured approach to developing intrusion detection solutions, with core functionality
+organized in the `src` folder. It includes tools for network data preprocessing, attack detection modeling, evaluation
+metrics, and result visualization tailored specifically for IDS workflows.
 
 ## Project Structure
 
@@ -32,18 +34,18 @@ ids-framework/
 
 2. Create a Python virtual environment:
    ```bash
-   python3 -m venv venv
+   python3 -m venv .venv
    ```
 
 3. Activate the virtual environment:
-   - On macOS/Linux:
-     ```bash
-     source venv/bin/activate
-     ```
-   - On Windows:
-     ```bash
-     venv\Scripts\activate
-     ```
+    - On macOS/Linux:
+      ```bash
+      source venv/bin/activate
+      ```
+    - On Windows:
+      ```bash
+      venv\Scripts\activate
+      ```
 
 4. Install the required dependencies:
    ```bash
@@ -56,5 +58,5 @@ After installation, you can import and use the core functions from the `src` fol
 
 ```python
 # Example usage (adjust imports based on your actual src structure)
-from src import your_module
+from src.idspy import your_module
 ```
