@@ -1,26 +1,14 @@
 from dataclasses import dataclass, field
-from typing import Sequence, Iterable, Optional, Tuple, Any, Union
+from typing import Sequence, Optional, Tuple, Dict, Any, Union
 
 import pandas as pd
 
-IndexLike = Union[pd.Index, Iterable[Any], pd.Series]
-
-
-def _to_index(index_like: IndexLike) -> pd.Index:
-    """
-    Convert to pd.Index.
-    - Boolean Series: use the indices where the value is True.
-    - Otherwise: build an Index from the values.
-    """
-    if isinstance(index_like, pd.Series):
-        if index_like.dtype == bool:
-            return index_like[index_like].index
-        return pd.Index(index_like)
-    return pd.Index(index_like)
+from .data import Data, DataView, IndexLike
 
 
 @dataclass(frozen=True)
 class TabularSchema:
+    """Declarative schema describing a tabular ML dataset."""
     target: str
     numeric: Sequence[str] = field(default_factory=tuple)
     categorical: Sequence[str] = field(default_factory=tuple)
@@ -28,13 +16,19 @@ class TabularSchema:
 
     @property
     def features(self) -> Tuple[str, ...]:
+        """All feature columns (numeric + categorical), in that order."""
         return tuple(self.numeric) + tuple(self.categorical)
 
     @property
     def all_columns(self) -> Tuple[str, ...]:
+        """All schema columns in the order: features, extra, target."""
         return self.features + tuple(self.extra) + (self.target,)
 
     def validate(self, df: pd.DataFrame) -> None:
+        """
+        Validate that the DataFrame contains the referenced columns
+        and that schema partitions don't overlap.
+        """
         cols = set(df.columns)
         missing = [c for c in self.all_columns if c not in cols]
         if missing:
@@ -53,10 +47,8 @@ class TabularSchema:
         if overlap_extra:
             raise ValueError(f"Extras overlap feature columns: {sorted(overlap_extra)}")
 
-    def to_dict(self) -> dict:
-        """
-        Convert the TabularSchema into a dictionary representation.
-        """
+    def to_dict(self) -> Dict[str, Any]:
+        """Dictionary representation of the schema (lists for sequences)."""
         return {
             "target": self.target,
             "numeric": list(self.numeric),
@@ -65,14 +57,37 @@ class TabularSchema:
         }
 
 
-@dataclass
-class TabularData:
-    _base: pd.DataFrame
+def coerce_single_column_frame(name: str, obj: Union[pd.Series, pd.DataFrame]) -> pd.DataFrame:
+    """
+    Ensure we have a single-column DataFrame named `name`.
+    Accepts a Series (renamed) or a single-column DataFrame (column renamed if needed).
+    """
+    if isinstance(obj, pd.Series):
+        df = obj.to_frame(name=name)
+    elif isinstance(obj, pd.DataFrame):
+        if obj.shape[1] != 1:
+            raise ValueError(f"Expected a single-column DataFrame for '{name}', got {obj.shape[1]} columns.")
+        col = obj.columns[0]
+        df = obj.rename(columns={col: name}) if col != name else obj
+    else:
+        raise TypeError(f"Expected pandas Series or single-column DataFrame for '{name}'.")
+    return df
+
+
+@dataclass(eq=False)
+class TabularData(Data):
+    """
+    Data container with an optional TabularSchema attached.
+
+    All Data operations are available; when a schema is set, convenience
+    accessors allow selecting numeric/categorical/features/target/extras.
+    """
     _schema: Optional[TabularSchema] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self._schema is not None:
-            self._schema.validate(self._base)
+            self._schema.validate(self._df)
 
     def _require_schema(self) -> TabularSchema:
         if self._schema is None:
@@ -84,122 +99,103 @@ class TabularData:
         return self._schema
 
     @schema.setter
-    def schema(self, new_schema: TabularSchema) -> None:
+    def schema(self, new_schema: Optional[TabularSchema]) -> None:
+        if new_schema is not None and not isinstance(new_schema, TabularSchema):
+            raise TypeError("'schema' must be a TabularSchema (or None).")
+
         self._schema = new_schema
         if new_schema is not None:
-            new_schema.validate(self._base)
+            new_schema.validate(self._df)
 
-    @property
-    def index(self) -> pd.Index:
-        return self._base.index
-
-    @property
-    def data(self) -> pd.DataFrame:
-        return self._base
-
-    # numeric
     @property
     def numeric(self) -> pd.DataFrame:
         sch = self._require_schema()
-        return self._base.loc[:, list(sch.numeric)] if sch.numeric else self._base.loc[:, []]
+        if not sch.numeric:
+            raise ValueError("Schema defines no numeric columns.")
+        return self.get_df(columns=list(sch.numeric))
 
     @numeric.setter
-    def numeric(self, value) -> None:
+    def numeric(self, new_df: pd.DataFrame) -> None:
         sch = self._require_schema()
         if not sch.numeric:
             raise ValueError("Schema defines no numeric columns to set.")
-        self._base.loc[:, list(sch.numeric)] = value
+        self.set_df(new_df, columns=list(sch.numeric))
 
-    # categorical
     @property
     def categorical(self) -> pd.DataFrame:
         sch = self._require_schema()
-        return self._base.loc[:, list(sch.categorical)] if sch.categorical else self._base.loc[:, []]
+        if not sch.categorical:
+            raise ValueError("Schema defines no categorical columns.")
+        return self.get_df(columns=list(sch.categorical))
 
     @categorical.setter
-    def categorical(self, value) -> None:
+    def categorical(self, new_df: pd.DataFrame) -> None:
         sch = self._require_schema()
         if not sch.categorical:
             raise ValueError("Schema defines no categorical columns to set.")
-        self._base.loc[:, list(sch.categorical)] = value
+        self.set_df(new_df, columns=list(sch.categorical))
 
-    # features
     @property
     def features(self) -> pd.DataFrame:
         sch = self._require_schema()
-        return self._base.loc[:, list(sch.features)]
+        if not sch.features:
+            raise ValueError("Schema defines no feature columns.")
+        return self.get_df(columns=list(sch.features))
 
     @features.setter
-    def features(self, value) -> None:
+    def features(self, new_df: pd.DataFrame) -> None:
         sch = self._require_schema()
-        self._base.loc[:, list(sch.features)] = value
+        if not sch.features:
+            raise ValueError("Schema defines no feature columns to set.")
+        self.set_df(new_df, columns=list(sch.features))
 
-    # target
     @property
     def target(self) -> pd.Series:
         sch = self._require_schema()
-        return self._base.loc[:, sch.target]
+        if not sch.target:
+            raise ValueError("Schema target is empty.")
+        return self.get_df(columns=sch.target)
 
     @target.setter
-    def target(self, value) -> None:
+    def target(self, new: Union[pd.Series, pd.DataFrame]) -> None:
         sch = self._require_schema()
-        self._base.loc[:, sch.target] = value
+        if not sch.target:
+            raise ValueError("Schema target is empty.")
+        new = coerce_single_column_frame(sch.target, new)
+        self.set_df(new, columns=[sch.target])
 
-    # extras
     @property
     def extras(self) -> pd.DataFrame:
         sch = self._require_schema()
         if not sch.extra:
-            raise ValueError("Schema does not define extras.")
-        return self._base.loc[:, list(sch.extra)]
+            raise ValueError("Schema defines no extra columns.")
+        return self.get_df(columns=list(sch.extra))
 
     @extras.setter
-    def extras(self, value) -> None:
+    def extras(self, new_df: pd.DataFrame) -> None:
         sch = self._require_schema()
         if not sch.extra:
-            raise ValueError("Schema does not define extras.")
-        self._base.loc[:, list(sch.extra)] = value
+            raise ValueError("Schema defines no extra columns to set.")
+        self.set_df(new_df, columns=list(sch.extra))
 
-    def to_dataframe(self, columns: Optional[Iterable[str]] = None, materialize: bool = False) -> pd.DataFrame:
-        df = self._base if columns is None else self._base.loc[:, list(columns)]
-        return df.copy(deep=True) if materialize else df
-
-    def view(self, index_like: IndexLike, strict: bool = True) -> "TabularView":
-        idx = _to_index(index_like)
-        if strict:
-            missing = idx.difference(self._base.index)
-            if len(missing) > 0:
-                raise ValueError(f"Some indices are not in base.index: {missing.tolist()}")
-            eff = idx
-        else:
-            eff = idx.intersection(self._base.index)
-        return TabularView(parent=self, index=eff)
-
-    def view_from_query(self, expr: str) -> "TabularView":
-        return TabularView(parent=self, index=self._base.query(expr).index)
-
-    def view_from_mask(self, mask: pd.Series) -> "TabularView":
-        if not mask.index.equals(self._base.index):
-            raise ValueError("Mask must be aligned to base.index.")
-        return TabularView(parent=self, index=self._base.index[mask])
-
-    def from_index(self, index_like: IndexLike) -> "TabularData":
-        return self.view(index_like).materialize()
-
-    def __len__(self) -> int:
-        return len(self._base.index)
+    def view(
+            self,
+            index: Optional[IndexLike] = None,
+            strict: bool = True,
+    ) -> "TabularView":
+        """
+        Create a view limited to `index`. If `strict`, ensure all requested
+        indices exist in the base index.
+        """
+        return TabularView(parent=self, _index=self._scope_from(index, strict))
 
 
-@dataclass
-class TabularView:
+@dataclass(eq=False)
+class TabularView(DataView):
+    """
+    A view over TabularData that respects the parent's schema and index scope.
+    """
     parent: TabularData
-    index: pd.Index
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "index", pd.Index(self.index))
-        missing = self.index.difference(self.parent.data.index)
-        if len(missing) > 0:
-            raise ValueError(f"View index not present in parent: {missing.tolist()}")
 
     def _require_schema(self) -> TabularSchema:
         sch = self.parent.schema
@@ -211,103 +207,82 @@ class TabularView:
     def schema(self) -> Optional[TabularSchema]:
         return self.parent.schema
 
-    # numeric
+    @schema.setter
+    def schema(self, new_schema: Optional[TabularSchema]) -> None:
+        self.parent.schema = new_schema
+
     @property
     def numeric(self) -> pd.DataFrame:
         sch = self._require_schema()
-        return self.parent.data.loc[self.index, list(sch.numeric)] if sch.numeric else self.parent.data.loc[
-            self.index, []]
+        if not sch.numeric:
+            raise ValueError("Schema defines no numeric columns.")
+        return self.parent.get_df(index=self.index, columns=list(sch.numeric))
 
     @numeric.setter
-    def numeric(self, value) -> None:
+    def numeric(self, new_df: pd.DataFrame) -> None:
         sch = self._require_schema()
         if not sch.numeric:
             raise ValueError("Schema defines no numeric columns to set.")
-        self.parent.data.loc[self.index, list(sch.numeric)] = value
+        self.parent.set_df(new_df, index=self.index, columns=list(sch.numeric))
 
-    # categorical
     @property
     def categorical(self) -> pd.DataFrame:
         sch = self._require_schema()
-        return self.parent.data.loc[self.index, list(sch.categorical)] if sch.categorical else self.parent.data.loc[
-            self.index, []]
+        if not sch.categorical:
+            raise ValueError("Schema defines no categorical columns.")
+        return self.parent.get_df(index=self.index, columns=list(sch.categorical))
 
     @categorical.setter
-    def categorical(self, value) -> None:
+    def categorical(self, new_df: pd.DataFrame) -> None:
         sch = self._require_schema()
         if not sch.categorical:
             raise ValueError("Schema defines no categorical columns to set.")
-        self.parent.data.loc[self.index, list(sch.categorical)] = value
+        self.parent.set_df(new_df, index=self.index, columns=list(sch.categorical))
 
-    # features
     @property
     def features(self) -> pd.DataFrame:
         sch = self._require_schema()
-        return self.parent.data.loc[self.index, list(sch.features)]
+        if not sch.features:
+            raise ValueError("Schema defines no feature columns.")
+        return self.parent.get_df(index=self.index, columns=list(sch.features))
 
     @features.setter
-    def features(self, value) -> None:
+    def features(self, new_df: pd.DataFrame) -> None:
         sch = self._require_schema()
-        self.parent.data.loc[self.index, list(sch.features)] = value
+        if not sch.features:
+            raise ValueError("Schema defines no feature columns to set.")
+        self.parent.set_df(new_df, index=self.index, columns=list(sch.features))
 
-    # target
     @property
     def target(self) -> pd.Series:
         sch = self._require_schema()
-        return self.parent.data.loc[self.index, sch.target]
+        if not sch.target:
+            raise ValueError("Schema target is empty.")
+        return self.parent.get_df(index=self.index, columns=sch.target)
 
     @target.setter
-    def target(self, value) -> None:
+    def target(self, new: Union[pd.Series, pd.DataFrame]) -> None:
         sch = self._require_schema()
-        self.parent.data.loc[self.index, sch.target] = value
+        if not sch.target:
+            raise ValueError("Schema target is empty.")
+        new = coerce_single_column_frame(sch.target, new)
+        self.parent.set_df(new, index=self.index, columns=[sch.target])
 
-    # extras
     @property
     def extras(self) -> pd.DataFrame:
         sch = self._require_schema()
         if not sch.extra:
-            raise ValueError("Schema does not define extras.")
-        return self.parent.data.loc[self.index, list(sch.extra)]
+            raise ValueError("Schema defines no extra columns.")
+        return self.parent.get_df(index=self.index, columns=list(sch.extra))
 
     @extras.setter
-    def extras(self, value) -> None:
+    def extras(self, new_df: pd.DataFrame) -> None:
         sch = self._require_schema()
         if not sch.extra:
-            raise ValueError("Schema does not define extras.")
-        self.parent.data.loc[self.index, list(sch.extra)] = value
-
-    def to_dataframe(self, columns: Optional[Iterable[str]] = None, materialize: bool = False) -> pd.DataFrame:
-        df = self.parent.data.loc[self.index] if columns is None else self.parent.data.loc[self.index, list(columns)]
-        return df.copy(deep=True) if materialize else df
-
-    def query(self, expr: str) -> "TabularView":
-        new_idx = self.parent.data.loc[self.index].query(expr).index
-        return TabularView(parent=self.parent, index=new_idx)
-
-    def mask(self, mask: pd.Series) -> "TabularView":
-        if not mask.index.equals(self.parent.data.index):
-            raise ValueError("Mask is not aligned to parent._base.index.")
-        new_idx = self.index.intersection(self.parent.data.index[mask])
-        return TabularView(parent=self.parent, index=new_idx)
-
-    def intersect(self, other: "TabularView") -> "TabularView":
-        if other.parent is not self.parent:
-            raise ValueError("Cannot intersect views with different parents.")
-        return TabularView(parent=self.parent, index=self.index.intersection(other.index))
-
-    def union(self, other: "TabularView") -> "TabularView":
-        if other.parent is not self.parent:
-            raise ValueError("Cannot union views with different parents.")
-        return TabularView(parent=self.parent, index=self.index.union(other.index))
-
-    def difference(self, other: "TabularView") -> "TabularView":
-        if other.parent is not self.parent:
-            raise ValueError("Cannot difference views with different parents.")
-        return TabularView(parent=self.parent, index=self.index.difference(other.index))
+            raise ValueError("Schema defines no extra columns to set.")
+        self.parent.set_df(new_df, index=self.index, columns=list(sch.extra))
 
     def materialize(self) -> TabularData:
-        new_base = self.parent.data.loc[self.index].copy(deep=True)
-        return TabularData(_base=new_base, _schema=self.parent.schema)
-
-    def __len__(self) -> int:
-        return len(self.index)
+        """Freeze this view into a standalone TabularData object."""
+        new_df = self.parent.get_df(index=self._eff_index, copy=False)
+        return TabularData(new_df, self.schema)

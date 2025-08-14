@@ -57,7 +57,7 @@ class TabularDataRepository:
                 with open(schema_path, encoding="utf-8") as f:
                     schema = _schema_from_dict(json.load(f))
 
-        return TabularData(_base=df, _schema=schema)
+        return TabularData(df, schema)
 
     @staticmethod
     def save(
@@ -70,7 +70,7 @@ class TabularDataRepository:
         p = Path(path)
         fmt = _infer_format(p)
 
-        df = tab.to_dataframe(materialize=False)
+        df = tab.df
 
         if fmt == "csv":
             df.to_csv(p, index=index, **kwargs)
