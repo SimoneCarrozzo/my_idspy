@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -99,7 +99,7 @@ def random_split(
 
 def stratified_split(
         df: pd.DataFrame,
-        target: pd.Series,
+        target: Union[str, pd.Series],
         train_size: float = 0.8,
         val_size: float = 0.1,
         test_size: float = 0.1,
@@ -107,5 +107,10 @@ def stratified_split(
         shuffle: Optional[bool] = True,
 ) -> Tuple[pd.Index, pd.Index, pd.Index]:
     """Stratified split of a DataFrame index into (train, val, test)."""
+    if isinstance(target, str):
+        if target not in df.columns:
+            raise ValueError(f"Target '{target}' must be in columns in `df`")
+        target = df[target]
+
     return _split_indices(df, train_size=train_size, val_size=val_size, test_size=test_size, target=target,
                           random_state=random_state, shuffle=shuffle)
