@@ -1,7 +1,7 @@
 import weakref
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import Union, Iterable, Any, Optional, Sequence
+from typing import Union, Iterable, Any, Optional
 
 import pandas as pd
 
@@ -35,7 +35,7 @@ class Data:
     )
 
     def __post_init__(self) -> None:
-        self._df = self._normalize_df(self._df)
+        self._df = self._normalize(self._df)
 
     @property
     def index(self) -> pd.Index:
@@ -48,7 +48,7 @@ class Data:
 
     @df.setter
     def df(self, new_df: pd.DataFrame) -> None:
-        self._df = self._normalize_df(new_df)
+        self._df = self._normalize(new_df)
         self._invalidate_views()
 
     def get_df(
@@ -69,41 +69,41 @@ class Data:
 
     def set_df(
             self,
-            new_df: pd.DataFrame,
+            value: Union[pd.DataFrame, pd.Series],
             index: Optional[IndexLike] = None,
-            columns: Optional[Union[pd.Index, Sequence]] = None,
     ) -> None:
         """
-        Overwrite rows in the DataFrame at `index` and `columns` with `new_df`.
+        Overwrite rows in the DataFrame at `index` with `value`.
 
         - Forbids accidental creation of new rows.
-        - Aligns/expands columns without unexpected dtype upcasting.
+        - Adds new columns if needed (taken from `value`).
+        - Avoids overwriting unrelated columns with NaNs.
+        - Aligns by index labels (not position).
         """
-        base = self._df
-        idx = to_index(index) if index is not None else base.index
-        incoming = self._normalize_df(new_df)
-        target_cols = pd.Index(columns) if columns is not None else incoming.columns
+        base = self.df
 
+        idx = to_index(index) if index is not None else base.index
         missing_rows = pd.Index(idx).difference(base.index)
         if len(missing_rows):
             raise ValueError(f"Index contains unknown labels: {missing_rows.tolist()}")
 
-        # Ensure both frames have the necessary columns without dtype surprises
-        base = base.reindex(columns=base.columns.union(target_cols))
-        incoming = incoming.reindex(columns=target_cols)
+        incoming = self._normalize(value)  # DataFrame
 
-        # Align incoming index to target index if necessary
         if not incoming.index.equals(idx):
-            if len(incoming) != len(idx):
-                raise ValueError(
-                    "Length mismatch: new_df must match target index length "
-                    "or share the same index."
-                )
-            incoming.index = pd.Index(idx)
+            if not incoming.index.is_unique:
+                raise ValueError("Incoming index contains duplicates.")
+            if not incoming.index.isin(idx).all() or len(incoming) != len(idx):
+                raise ValueError("Index mismatch: `value` must have the same index as `index`.")
+            incoming = incoming.reindex(idx)  # stesso ordine dei label
 
-        base.loc[idx, target_cols] = incoming[target_cols]
-        self._df = self._normalize_df(base)
-        self._invalidate_views()
+        write_cols = pd.Index(incoming.columns)
+
+        new_cols = write_cols.difference(base.columns)
+        for c in new_cols:
+            base[c] = pd.NA
+
+        base.loc[idx, write_cols] = incoming.values
+        self.df = base
 
     def refresh_views(self) -> None:
         self._invalidate_views()
@@ -119,13 +119,15 @@ class Data:
                 raise e
 
     @staticmethod
-    def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
+    def _normalize(value: Union[pd.DataFrame, pd.Series]) -> pd.DataFrame:
         """Ensure a DataFrame with a unique index and deep copy."""
-        if not isinstance(df, pd.DataFrame):
-            raise TypeError("df must be a pandas DataFrame")
-        if not df.index.is_unique:
+        if not isinstance(value, (pd.DataFrame, pd.Series)):
+            raise TypeError("value must be a pandas DataFrame or a pandas Series.")
+        if isinstance(value, pd.DataFrame) and not value.index.is_unique:
             raise ValueError("df.index must be unique")
-        return df.copy(deep=True)
+        if isinstance(value, pd.Series):
+            value = value.to_frame()
+        return value.copy(deep=True)
 
     def _scope_from(self, index: Optional[IndexLike], strict: bool) -> pd.Index:
         """
@@ -246,18 +248,17 @@ class DataView:
 
     def set_df(
             self,
-            new_df: pd.DataFrame,
+            value: Union[pd.DataFrame, pd.Series],
             index: Optional[IndexLike] = None,
-            columns: Optional[Union[pd.Index, Sequence]] = None,
     ) -> None:
         """
-        Overwrite rows in the DataFrame at `index` and `columns` with `new_df`.
+        Overwrite rows in the DataFrame at `index` and `columns` with `value`.
 
         - Forbids accidental creation of new rows.
         - Aligns/expands columns without unexpected dtype upcasting.
         """
         idx = to_index(index).intersection(self._eff_index) if index is not None else self._eff_index
-        self.parent.set_df(new_df, index=idx, columns=columns)
+        self.parent.set_df(value, index=idx)
 
     def view(self, index_like: IndexLike, strict: bool = True) -> "DataView":
         """Create a subview within this view's scope."""
