@@ -119,7 +119,10 @@ class TabularData(Data):
         sch = self._require_schema()
         if not sch.numeric:
             raise ValueError("Schema defines no numeric columns to set.")
-        self.set_df(new_df, columns=list(sch.numeric))
+        if not new_df.columns.equals(pd.Index(sch.numeric)):
+            raise ValueError("Schema defined numeric columns differ from 'new_df' columns.")
+
+        self.set_df(new_df)
 
     @property
     def categorical(self) -> pd.DataFrame:
@@ -133,7 +136,10 @@ class TabularData(Data):
         sch = self._require_schema()
         if not sch.categorical:
             raise ValueError("Schema defines no categorical columns to set.")
-        self.set_df(new_df, columns=list(sch.categorical))
+        if not new_df.columns.equals(pd.Index(sch.categorical)):
+            raise ValueError("Schema defined categorical columns differ from 'new_df' columns.")
+
+        self.set_df(new_df)
 
     @property
     def features(self) -> pd.DataFrame:
@@ -147,7 +153,10 @@ class TabularData(Data):
         sch = self._require_schema()
         if not sch.features:
             raise ValueError("Schema defines no feature columns to set.")
-        self.set_df(new_df, columns=list(sch.features))
+        if not new_df.columns.equals(pd.Index(sch.features)):
+            raise ValueError("Schema defined features columns differ from 'new_df' columns.")
+
+        self.set_df(new_df)
 
     @property
     def target(self) -> pd.Series:
@@ -162,7 +171,11 @@ class TabularData(Data):
         if not sch.target:
             raise ValueError("Schema target is empty.")
         new = coerce_single_column_frame(sch.target, new)
-        self.set_df(new, columns=[sch.target])
+
+        if not new.columns.equals(pd.Index(sch.target)):
+            raise ValueError("Schema defined target column differ from 'new_df' columns.")
+
+        self.set_df(new)
 
     @property
     def extras(self) -> pd.DataFrame:
@@ -176,7 +189,10 @@ class TabularData(Data):
         sch = self._require_schema()
         if not sch.extra:
             raise ValueError("Schema defines no extra columns to set.")
-        self.set_df(new_df, columns=list(sch.extra))
+        if not new_df.columns.equals(pd.Index(sch.extra)):
+            raise ValueError("Schema defined extra columns differ from 'new_df' columns.")
+
+        self.set_df(new_df)
 
     def view(
             self,
@@ -223,7 +239,7 @@ class TabularView(DataView):
         sch = self._require_schema()
         if not sch.numeric:
             raise ValueError("Schema defines no numeric columns to set.")
-        self.parent.set_df(new_df, index=self.index, columns=list(sch.numeric))
+        self.parent.set_df(new_df, index=self.index)
 
     @property
     def categorical(self) -> pd.DataFrame:
@@ -237,7 +253,7 @@ class TabularView(DataView):
         sch = self._require_schema()
         if not sch.categorical:
             raise ValueError("Schema defines no categorical columns to set.")
-        self.parent.set_df(new_df, index=self.index, columns=list(sch.categorical))
+        self.parent.set_df(new_df, index=self.index)
 
     @property
     def features(self) -> pd.DataFrame:
@@ -251,7 +267,7 @@ class TabularView(DataView):
         sch = self._require_schema()
         if not sch.features:
             raise ValueError("Schema defines no feature columns to set.")
-        self.parent.set_df(new_df, index=self.index, columns=list(sch.features))
+        self.parent.set_df(new_df, index=self.index)
 
     @property
     def target(self) -> pd.Series:
@@ -266,7 +282,7 @@ class TabularView(DataView):
         if not sch.target:
             raise ValueError("Schema target is empty.")
         new = coerce_single_column_frame(sch.target, new)
-        self.parent.set_df(new, index=self.index, columns=[sch.target])
+        self.parent.set_df(new, index=self.index)
 
     @property
     def extras(self) -> pd.DataFrame:
@@ -280,7 +296,7 @@ class TabularView(DataView):
         sch = self._require_schema()
         if not sch.extra:
             raise ValueError("Schema defines no extra columns to set.")
-        self.parent.set_df(new_df, index=self.index, columns=list(sch.extra))
+        self.parent.set_df(new_df, index=self.index)
 
     def materialize(self) -> TabularData:
         """Freeze this view into a standalone TabularData object."""
