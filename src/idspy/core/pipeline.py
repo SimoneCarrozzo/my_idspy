@@ -138,7 +138,7 @@ class FittedPipeline(Pipeline):
 
     def run(self, state: State) -> None:
         if not self._is_fitted:
-            raise RuntimeError(f"Pipeline {self.name!r} has not been fitted yet.")
+            self.fit(state)
         super().run(state)
 
 
