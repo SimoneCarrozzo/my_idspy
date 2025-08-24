@@ -41,6 +41,8 @@ class TabularDataRepository:
     def load(
             path: str | Path,
             schema: Optional[TabularSchema] = None,
+            num_dtype="float64",
+            cat_dtype="category",
             **kwargs,
     ) -> TabularData:
         p = Path(path)
@@ -56,6 +58,10 @@ class TabularDataRepository:
             if schema_path.exists():
                 with open(schema_path, encoding="utf-8") as f:
                     schema = _schema_from_dict(json.load(f))
+
+        if schema is not None:
+            df[list(schema.numeric)] = df[list(schema.numeric)].astype(num_dtype)
+            df[list(schema.categorical)] = df[list(schema.categorical)].astype(cat_dtype)
 
         return TabularData(df, schema)
 
