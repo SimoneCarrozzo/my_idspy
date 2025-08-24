@@ -1,5 +1,6 @@
 from typing import Final
 
+import numpy as np
 import pandas as pd
 
 from ..utils import validate_instance
@@ -9,7 +10,7 @@ from ...data.tabular_data import TabularData, TabularView
 
 
 class StandardScale(FittedStep):
-    """Standardize numeric columns using mean/std."""
+    """Standardize numeric columns using mean/std with overflow-safe scaling."""
 
     def __init__(
             self,
@@ -22,8 +23,9 @@ class StandardScale(FittedStep):
         self.fit_key: Final[str] = fit_key
         self.output_key: Final[str] = output_key or input_key
 
-        self._means: pd.Series | None = None
-        self._stds: pd.Series | None = None
+        self._scale: pd.Series | None = None
+        self._means_s: pd.Series | None = None
+        self._stds_s: pd.Series | None = None
 
         super().__init__(
             name=name or "standard_scale",
@@ -35,17 +37,30 @@ class StandardScale(FittedStep):
         data: TabularData | TabularView = state[self.fit_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
-        self._means = data.numeric.mean()
-        self._stds = data.numeric.std(ddof=0).replace(0, 1)
+        num = data.numeric.astype(np.float64, copy=False)
+
+        scale = num.abs().max(axis=0).fillna(0.0)
+        scale = scale.where(scale > 0.0, 1.0)
+        num_s = num.divide(scale, axis="columns")
+
+        self._scale = scale
+        self._means_s = num_s.mean()
+        self._stds_s = num_s.std(ddof=0).replace(0.0, 1.0)
 
     def _run(self, state: State) -> None:
         data: TabularData | TabularView = state[self.input_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
-        means = self._means.reindex(data.numeric.columns, fill_value=0)  # type: ignore[union-attr]
-        stds = self._stds.reindex(data.numeric.columns, fill_value=1)  # type: ignore[union-attr]
+        num = data.numeric.astype(np.float64, copy=False).replace([np.inf, -np.inf], np.nan)
 
-        data.numeric = (data.numeric - means) / stds
+        # Align saved stats to current columns
+        scale = self._scale.reindex(num.columns, fill_value=1.0)
+        means_s = self._means_s.reindex(num.columns, fill_value=0.0)
+        stds_s = self._stds_s.reindex(num.columns, fill_value=1.0)
+
+        num_s = num.divide(scale, axis="columns")
+        data.numeric = (num_s - means_s) / stds_s
+
         state[self.output_key] = data
 
 
