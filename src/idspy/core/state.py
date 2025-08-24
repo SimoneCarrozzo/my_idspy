@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import MutableMapping, Iterator
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
