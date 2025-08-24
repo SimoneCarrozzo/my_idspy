@@ -17,7 +17,7 @@ class Pipeline(Step):
             name: Optional[str] = None,
             requires: Optional[Iterable[str]] = None,
             produces: Optional[Iterable[str]] = None,
-            **kwargs: Any,
+            **_: Any,
     ):
         super().__init__(name=name, requires=requires, produces=produces)
         self.steps: List[Step] = list(steps)
@@ -44,13 +44,19 @@ class Pipeline(Step):
     def on_pipeline_end(self, state: State) -> None:
         ...
 
-    def before_step(self, step: Step, state: State, index: int) -> None:
+    def before_step(self, step: Step, state: State, *, index: int) -> None:
         ...
 
-    def after_step(self, step: Step, state: State, index: int) -> None:
+    def after_step(self, step: Step, state: State, *, index: int) -> None:
         ...
 
-    def on_error(self, state: State, e: Exception, step: Optional[Step], index: Optional[int]) -> None:
+    def on_error(
+            self,
+            state: State,
+            e: Exception,
+            step: Optional[Step],
+            index: Optional[int],
+    ) -> None:
         ...
 
     def add_step(self, step: Step) -> None:
@@ -79,20 +85,36 @@ class InstrumentationMixin:
 
     # Hook implementations
     def on_pipeline_start(self, state: State) -> None:
-        self.bus.publish(Event.pipeline_start(getattr(self, "name", "pipeline"), state.get_view()))
+        self.bus.publish(
+            Event.pipeline_start(getattr(self, 'name', 'pipeline'), state.get_view())
+        )
 
     def on_pipeline_end(self, state: State) -> None:
-        self.bus.publish(Event.pipeline_end(getattr(self, "name", "pipeline"), state.get_view()))
+        self.bus.publish(
+            Event.pipeline_end(getattr(self, 'name', 'pipeline'), state.get_view())
+        )
 
     def before_step(self, step: Step, state: State, *, index: int) -> None:
         self.bus.publish(
-            Event.step_start(f"{getattr(self, "name", "pipeline")}.{step.name}", state.get_view(), index=index,
-                             requires=list(step.requires), provides=list(step.provides)))
+            Event.step_start(
+                f"{getattr(self, 'name', 'pipeline')}.{step.name}",
+                state.get_view(),
+                index=index,
+                requires=list(step.requires),
+                provides=list(step.provides),
+            )
+        )
 
     def after_step(self, step: Step, state: State, *, index: int) -> None:
         self.bus.publish(
-            Event.step_end(f"{getattr(self, "name", "pipeline")}.{step.name}", state.get_view(), index=index,
-                           requires=list(step.requires), provides=list(step.provides)))
+            Event.step_end(
+                f"{getattr(self, 'name', 'pipeline')}.{step.name}",
+                state.get_view(),
+                index=index,
+                requires=list(step.requires),
+                provides=list(step.provides),
+            )
+        )
 
     def on_error(
             self,
@@ -101,9 +123,18 @@ class InstrumentationMixin:
             step: Optional[Step],
             index: Optional[int],
     ) -> None:
+        step_label = (
+            f"{getattr(self, 'name', 'pipeline')}.{step.name}"
+            if step is not None else getattr(self, 'name', 'pipeline')
+        )
         self.bus.publish(
-            Event.step_error(f"{getattr(self, "name", "pipeline")}.{step.name}", state.get_view(), index=index,
-                             error=repr(e)))
+            Event.step_error(
+                step_label,
+                state.get_view(),
+                index=index,
+                error=repr(e),
+            )
+        )
 
 
 class InstrumentedPipeline(InstrumentationMixin, Pipeline):
@@ -136,10 +167,10 @@ class FittedPipeline(Pipeline):
                 step.fit(state)
         self._is_fitted = True
 
-    def run(self, state: State) -> None:
+    def _run(self, state: State) -> None:
         if not self._is_fitted:
             self.fit(state)
-        super().run(state)
+        super()._run(state)
 
 
 class FittedInstrumentedPipeline(InstrumentationMixin, FittedPipeline):
