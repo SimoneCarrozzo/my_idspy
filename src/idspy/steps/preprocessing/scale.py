@@ -14,8 +14,8 @@ class StandardScale(FittedStep):
 
     def __init__(
             self,
-            input_key: str = "data",
-            fit_key: str = "train",
+            input_key: str = "data.default",
+            fit_key: str = "data.train",
             output_key: str | None = None,
             name: str | None = None,
     ) -> None:
@@ -69,8 +69,8 @@ class MinMaxScale(FittedStep):
 
     def __init__(
             self,
-            input_key: str = "data",
-            fit_key: str = "train",
+            input_key: str = "data.default",
+            fit_key: str = "data.train",
             output_key: str | None = None,
             name: str | None = None,
     ) -> None:

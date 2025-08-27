@@ -14,7 +14,7 @@ class LoadTabularData(Step):
     def __init__(
             self,
             path: str | Path,
-            output_key: str = "data",
+            output_key: str = "data.default",
             schema: Optional[TabularSchema] = None,
             pandas_kwargs: Optional[Dict[str, Any]] = None,
             name: Optional[str] = None,
@@ -45,7 +45,7 @@ class SaveTabularData(Step):
     def __init__(
             self,
             path: str | Path,
-            input_key: str = "data",
+            input_key: str = "data.default",
             include_schema: bool = True,
             index: bool = False,
             pandas_kwargs: Optional[Dict[str, Any]] = None,

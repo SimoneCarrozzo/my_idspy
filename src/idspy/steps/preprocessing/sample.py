@@ -1,7 +1,5 @@
 from typing import Final
 
-import pandas as pd
-
 from ..utils import validate_instance
 from ...core.state import State
 from ...core.step import Step
@@ -14,7 +12,7 @@ class DownsampleToMinority(Step):
     def __init__(
             self,
             target: str,
-            input_key: str = "data",
+            input_key: str = "data.default",
             output_key: str | None = None,
             name: str | None = None,
             random_state: int | None = None,
@@ -45,16 +43,11 @@ class DownsampleToMinority(Step):
             return
 
         minority = int(counts.min())
-
-        # Per-group sampling with a fixed n=minority, respecting groups with < minority rows
-        # by sampling n=len(g) in that case.
-        def _sample_group(g: pd.DataFrame) -> pd.DataFrame:
-            n = min(len(g), minority)
-            return g.sample(n=n, replace=False, random_state=self.random_state)
+        shuffled = df.sample(frac=1, replace=False, random_state=self.random_state)
 
         sampled = (
-            df.groupby(self.target, group_keys=False, sort=False)
-            .apply(_sample_group)
+            shuffled.groupby(self.target, dropna=False, group_keys=False, sort=False)
+            .head(minority)
         )
 
         state[self.output_key] = data.view(sampled.index.tolist())
@@ -67,7 +60,7 @@ class Downsample(Step):
             self,
             frac: float,
             target: str | None = None,
-            input_key: str = "data",
+            input_key: str = "data.default",
             output_key: str | None = None,
             name: str | None = None,
             random_state: int | None = None,

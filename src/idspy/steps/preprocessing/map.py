@@ -17,8 +17,8 @@ class FrequencyMap(FittedStep):
             self,
             max_levels: Optional[int] = None,
             default: int = 0,
-            input_key: str = "data",
-            fit_key: str = "train",
+            input_key: str = "data.default",
+            fit_key: str = "data.train",
             output_key: Optional[str] = None,
             name: Optional[str] = None,
     ) -> None:
@@ -76,8 +76,8 @@ class TargetMap(FittedStep):
             benign_tag: Optional[str] = None,
             target_out: Optional[str] = None,
             default: int = -1,
-            input_key: str = "data",
-            fit_key: str = "train",
+            input_key: str = "data.default",
+            fit_key: str = "data.train",
             output_key: Optional[str] = None,
             name: Optional[str] = None,
     ) -> None:

@@ -3,7 +3,7 @@ from typing import Final
 from src.idspy.core.state import State
 from src.idspy.core.step import Step
 from src.idspy.data.split import random_split, stratified_split
-from src.idspy.data.tabular_data import Data
+from src.idspy.data.tabular_data import Data, DataView
 from src.idspy.steps.utils import validate_instance
 
 
@@ -22,10 +22,10 @@ class RandomSplit(Step):
 
     def __init__(
             self,
-            input_key: str = "data",
-            train_key: str = "train",
-            val_key: str = "val",
-            test_key: str = "test",
+            input_key: str = "data.default",
+            train_key: str = "data.train",
+            val_key: str = "data.val",
+            test_key: str = "data.test",
             train_size: float = 0.7,
             val_size: float = 0.15,
             test_size: float = 0.15,
@@ -51,7 +51,7 @@ class RandomSplit(Step):
 
     def _run(self, state: State) -> None:
         data: Data = state[self.input_key]
-        validate_instance(data, Data, self.name)
+        validate_instance(data, (Data, DataView), self.name)
 
         train_idx, val_idx, test_idx = random_split(
             data.df,
@@ -72,10 +72,10 @@ class StratifiedSplit(Step):
     def __init__(
             self,
             target: str,
-            input_key: str = "data",
-            train_key: str = "train",
-            val_key: str = "val",
-            test_key: str = "test",
+            input_key: str = "data.default",
+            train_key: str = "data.train",
+            val_key: str = "data.val",
+            test_key: str = "data.test",
             train_size: float = 0.7,
             val_size: float = 0.15,
             test_size: float = 0.15,
@@ -102,7 +102,7 @@ class StratifiedSplit(Step):
 
     def _run(self, state: State) -> None:
         data: Data = state[self.input_key]
-        validate_instance(data, Data, self.name)
+        validate_instance(data, (Data, DataView), self.name)
 
         train_idx, val_idx, test_idx = stratified_split(
             data.df,
