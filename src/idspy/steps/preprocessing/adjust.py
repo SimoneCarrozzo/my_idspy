@@ -13,7 +13,7 @@ class DropNulls(Step):
 
     def __init__(
             self,
-            input_key: str = "data",
+            input_key: str = "data.default",
             output_key: str | None = None,
             name: str | None = None,
     ) -> None:
@@ -31,7 +31,7 @@ class DropNulls(Step):
         validate_instance(data, (Data, DataView), self.name)
 
         df = data.df
-        data.df = df.replace([np.inf, -np.inf], np.nan).dropna()
+        data.df = df[~df.isin([np.inf, -np.inf, np.nan]).any(axis=1)]
         state[self.output_key] = data
 
 
@@ -41,7 +41,7 @@ class Filter(Step):
     def __init__(
             self,
             query: str,
-            input_key: str = "data",
+            input_key: str = "data.default",
             output_key: str | None = None,
             name: str | None = None,
     ) -> None:
@@ -67,7 +67,7 @@ class Log1p(Step):
 
     def __init__(
             self,
-            input_key: str = "data",
+            input_key: str = "data.default",
             output_key: str | None = None,
             name: str | None = None,
     ) -> None:

@@ -42,7 +42,7 @@ class TabularDataRepository:
             path: str | Path,
             schema: Optional[TabularSchema] = None,
             num_dtype="float64",
-            cat_dtype="category",
+            cat_dtype="object",
             **kwargs,
     ) -> TabularData:
         p = Path(path)
