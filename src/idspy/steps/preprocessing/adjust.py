@@ -9,7 +9,7 @@ from ...data.tabular_data import Data, DataView, TabularData, TabularView
 
 
 class DropNulls(Step):
-    """Replace ±inf→NaN and drop rows with any NaNs."""
+    """Drop all rows that contain null values, including NaN and ±inf."""
 
     def __init__(
             self,
