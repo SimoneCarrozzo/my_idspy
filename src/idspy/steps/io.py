@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from .utils import validate_instance
 from ..core.state import State
 from ..core.step import Step
-from ..data.tabular_data import TabularSchema, TabularData
+from ..data.tabular_data import TabularSchema, TabularData, TabularView
 from ..data.tabular_repository import TabularDataRepository
 
 
@@ -65,7 +65,7 @@ class SaveTabularData(Step):
 
     def _run(self, state: State) -> None:
         tab: TabularData = state[self.input_key]
-        validate_instance(tab, TabularData, self.name)
+        validate_instance(tab, (TabularData, TabularView), self.name)
 
         TabularDataRepository.save(
             tab,

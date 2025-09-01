@@ -8,9 +8,10 @@ from src.idspy.data.tabular_data import TabularSchema
 from src.idspy.events.bus import EventBus
 from src.idspy.events.events import EventType
 from src.idspy.services.logger import setup_logging
-from src.idspy.steps.io import LoadTabularData
+from src.idspy.steps.io import LoadTabularData, SaveTabularData
 from src.idspy.steps.preprocessing.adjust import DropNulls
 from src.idspy.steps.preprocessing.map import FrequencyMap, TargetMap
+from src.idspy.steps.preprocessing.sample import DownsampleToMinority
 from src.idspy.steps.preprocessing.scale import StandardScale
 from src.idspy.steps.preprocessing.split import StratifiedSplit
 
@@ -40,7 +41,7 @@ def main():
     bus.subscribe(EventType.PIPELINE_END, lambda e: logger.info(f"Finished Pipeline: {e.id}"))
     bus.subscribe(EventType.STEP_START, lambda e: logger.info(f"Starting Step: {e.id}"))
     bus.subscribe(EventType.STEP_END, lambda e: logger.info(f"Finished Step: {e.id}"))
-    
+
     fitted_pipeline = FittedInstrumentedPipeline(
         steps=[
             StandardScale(),
@@ -55,8 +56,12 @@ def main():
         steps=[
             LoadTabularData(path="resources/data/dataset_v2/cic_2018_v2.csv", schema=schema),
             DropNulls(),
+            DownsampleToMinority(target=schema.target),
             StratifiedSplit(target=schema.target),
             fitted_pipeline,
+            SaveTabularData(path="resources/data/processed/dataset_v2/cic_2018/train.parquet", input_key="data.train"),
+            SaveTabularData(path="resources/data/processed/dataset_v2/cic_2018/val.parquet", input_key="data.val"),
+            SaveTabularData(path="resources/data/processed/dataset_v2/cic_2018/test.parquet", input_key="data.test")
         ],
         bus=bus,
         name="main_pipeline",

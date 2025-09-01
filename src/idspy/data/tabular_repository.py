@@ -75,14 +75,17 @@ class TabularDataRepository:
     ) -> None:
         p = Path(path)
         fmt = _infer_format(p)
+        p.parent.mkdir(parents=True, exist_ok=True)
 
         df = tab.df
 
         if fmt == "csv":
             df.to_csv(p, index=index, **kwargs)
-        else:  # parquet
+        elif fmt == "parquet":
             df_to_write = df.reset_index(drop=not index)
             df_to_write.to_parquet(p, **kwargs)
+        else:
+            raise ValueError(f"Unsupported format: {fmt}. Only 'csv' and 'parquet' are allowed.")
 
         if include_schema and tab.schema is not None:
             schema_path = p.with_suffix("").with_suffix(".schema.json")
