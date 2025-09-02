@@ -5,11 +5,11 @@ import pandas as pd
 
 from ..utils import validate_instance
 from ...core.state import State
-from ...core.step import FittedStep
+from ...core.step import FitAwareStep
 from ...data.tabular_data import TabularData, TabularView
 
 
-class StandardScale(FittedStep):
+class StandardScale(FitAwareStep):
     """Standardize numeric columns using mean/std with overflow-safe scaling."""
 
     def __init__(
@@ -30,10 +30,10 @@ class StandardScale(FittedStep):
         super().__init__(
             name=name or "standard_scale",
             requires=[self.input_key, self.fit_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _fit(self, state: State) -> None:
+    def fit_core(self, state: State) -> None:
         data: TabularData | TabularView = state[self.fit_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
@@ -47,7 +47,7 @@ class StandardScale(FittedStep):
         self._means_s = num_s.mean()
         self._stds_s = num_s.std(ddof=0).replace(0.0, 1.0)
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: TabularData | TabularView = state[self.input_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
@@ -64,7 +64,7 @@ class StandardScale(FittedStep):
         state[self.output_key] = data
 
 
-class MinMaxScale(FittedStep):
+class MinMaxScale(FitAwareStep):
     """Scale numeric columns to [0, 1] using min/max."""
 
     def __init__(
@@ -84,17 +84,17 @@ class MinMaxScale(FittedStep):
         super().__init__(
             name=name or "min_max_scale",
             requires=[self.input_key, self.fit_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _fit(self, state: State) -> None:
+    def fit_core(self, state: State) -> None:
         data: TabularData | TabularView = state[self.fit_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
         self._min = data.numeric.min()
         self._max = data.numeric.max()
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: TabularData | TabularView = state[self.input_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 

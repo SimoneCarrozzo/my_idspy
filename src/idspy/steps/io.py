@@ -27,10 +27,10 @@ class LoadTabularData(Step):
         super().__init__(
             name=name or "load_tabular",
             requires=None,
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         tab = TabularDataRepository.load(
             self.path,
             schema=self.schema,
@@ -60,10 +60,10 @@ class SaveTabularData(Step):
         super().__init__(
             name=name or "save_tabular",
             requires=[self.input_key],
-            produces=None,
+            provides=None,
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         tab: TabularData = state[self.input_key]
         validate_instance(tab, (TabularData, TabularView), self.name)
 

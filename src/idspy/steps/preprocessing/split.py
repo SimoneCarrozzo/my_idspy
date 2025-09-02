@@ -46,10 +46,10 @@ class RandomSplit(Step):
         super().__init__(
             name=name or "random_split",
             requires=[self.input_key],
-            produces=[self.train_key, self.val_key, self.test_key],
+            provides=[self.train_key, self.val_key, self.test_key],
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: Data = state[self.input_key]
         validate_instance(data, (Data, DataView), self.name)
 
@@ -97,10 +97,10 @@ class StratifiedSplit(Step):
         super().__init__(
             name=name or "stratified_split",
             requires=[self.input_key],
-            produces=[self.train_key, self.val_key, self.test_key],
+            provides=[self.train_key, self.val_key, self.test_key],
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: Data = state[self.input_key]
         validate_instance(data, (Data, DataView), self.name)
 

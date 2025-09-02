@@ -25,10 +25,10 @@ class DownsampleToMinority(Step):
         super().__init__(
             name=name or "downsample_to_minority",
             requires=[self.input_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: Data | DataView = state[self.input_key]
         validate_instance(data, (Data, DataView), self.name)
         df = data.df
@@ -77,10 +77,10 @@ class Downsample(Step):
         super().__init__(
             name=name or "downsample",
             requires=[self.input_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: Data | DataView = state[self.input_key]
         validate_instance(data, (Data, DataView), self.name)
         df = data.df

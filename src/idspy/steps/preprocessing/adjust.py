@@ -23,10 +23,10 @@ class DropNulls(Step):
         super().__init__(
             name=name or "drop_nulls",
             requires=[self.input_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: Data | DataView = state[self.input_key]
         validate_instance(data, (Data, DataView), self.name)
 
@@ -52,10 +52,10 @@ class Filter(Step):
         super().__init__(
             name=name or "filter",
             requires=[self.input_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: Data | DataView = state[self.input_key]
         validate_instance(data, (Data, DataView), self.name)
 
@@ -77,10 +77,10 @@ class Log1p(Step):
         super().__init__(
             name=name or "log1p",
             requires=[self.input_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: TabularData | TabularView = state[self.input_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 

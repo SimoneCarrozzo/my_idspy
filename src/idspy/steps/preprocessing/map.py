@@ -6,11 +6,11 @@ from pandas.api.types import CategoricalDtype
 
 from ..utils import validate_instance
 from ...core.state import State
-from ...core.step import FittedStep
+from ...core.step import FitAwareStep
 from ...data.tabular_data import TabularData, TabularView
 
 
-class FrequencyMap(FittedStep):
+class FrequencyMap(FitAwareStep):
     """Map categorical columns to frequency-rank codes."""
 
     def __init__(
@@ -32,10 +32,10 @@ class FrequencyMap(FittedStep):
         super().__init__(
             name=name or "frequency_map",
             requires=[self.input_key, self.fit_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _fit(self, state: State) -> None:
+    def fit_core(self, state: State) -> None:
         data: TabularData | TabularView = state[self.fit_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
@@ -49,7 +49,7 @@ class FrequencyMap(FittedStep):
             )
             self.cat_types[col] = CategoricalDtype(categories=cats, ordered=True)
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: TabularData | TabularView = state[self.input_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
@@ -68,7 +68,7 @@ class FrequencyMap(FittedStep):
         state[self.output_key] = data
 
 
-class TargetMap(FittedStep):
+class TargetMap(FitAwareStep):
     """Encode target: binary with `benign_tag`, else ordinal categories."""
 
     def __init__(
@@ -92,10 +92,10 @@ class TargetMap(FittedStep):
         super().__init__(
             name=name or "target_map",
             requires=[self.input_key, self.fit_key],
-            produces=[self.output_key],
+            provides=[self.output_key],
         )
 
-    def _fit(self, state: State) -> None:
+    def fit_core(self, state: State) -> None:
         data: TabularData | TabularView = state[self.fit_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
@@ -103,7 +103,7 @@ class TargetMap(FittedStep):
             vc = data.target.value_counts(dropna=False)
             self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
 
-    def _run(self, state: State) -> None:
+    def run(self, state: State) -> None:
         data: TabularData | TabularView = state[self.input_key]
         validate_instance(data, (TabularData, TabularView), self.name)
 
