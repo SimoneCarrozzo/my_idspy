@@ -1,8 +1,8 @@
 import logging
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Final
 
-from .events import Event, EventType
+from .events import Event
 
 logger = logging.getLogger(__name__)
 
@@ -19,53 +19,56 @@ class _Entry:
 
 class EventBus:
     """
-    Minimal synchronous EventBus (single-threaded).
+    Minimal synchronous event bus.
 
-    Features:
-      - Subscribe to a specific EventType or to ALL events.
-      - Optional predicate per subscriber to filter events.
-      - Unsubscribe via token (returned by subscribe).
+    - Subscribe to a specific event type (str) or to ALL events (event_type=None).
+    - Optional predicate for fine-grained filtering.
+    - Unsubscribe via token.
+    - Decorator-based registration: `@bus.on("pipeline.start")` or `@bus.on()`.
     """
 
-    _ALL: Optional[EventType] = None  # special key for catch-all subscribers
+    ALL: Final[Optional[str]] = None  # sentinel for "all events"
 
     def __init__(self) -> None:
-        # event_type -> list of subscriber entries
-        self._subs: Dict[Optional[EventType], List[_Entry]] = {}
-        self._next_token = 1
+        self._subs: Dict[Optional[str], List[_Entry]] = {}
+        self._next_token: int = 1
 
     def subscribe(
             self,
-            event_type: EventType,
             callback: Subscriber,
+            event_type: Optional[str] = None,
             predicate: Optional[Predicate] = None,
     ) -> int:
-        """Register `callback` for events of `event_type` (optionally filtered)."""
+        """Register `callback` for `event_type` (use None for ALL). Returns a token."""
         token = self._next_token
         self._next_token += 1
         self._subs.setdefault(event_type, []).append(_Entry(callback, predicate, token))
         return token
 
-    def subscribe_all(
+    def on(
             self,
-            callback: Subscriber,
+            event_type: Optional[str] = None,
             predicate: Optional[Predicate] = None,
-    ) -> int:
-        """Register `callback` for *all* event types."""
-        token = self._next_token
-        self._next_token += 1
-        self._subs.setdefault(self._ALL, []).append(_Entry(callback, predicate, token))
-        return token
+    ) -> Callable[[Subscriber], Subscriber]:
+        """
+        Decorator to subscribe a handler.
+        """
+
+        def decorator(fn: Subscriber) -> Subscriber:
+            self.subscribe(event_type, fn, predicate=predicate)
+            return fn
+
+        return decorator
 
     def unsubscribe(self, token: int) -> bool:
-        """Remove a previously subscribed callback by token. Returns True if removed."""
+        """Remove previously subscribed callback by token. Returns True if removed."""
         removed = False
         for key, entries in list(self._subs.items()):
-            new_entries = [e for e in entries if e.token != token]
-            if len(new_entries) != len(entries):
+            kept = [e for e in entries if e.token != token]
+            if len(kept) != len(entries):
                 removed = True
-                if new_entries:
-                    self._subs[key] = new_entries
+                if kept:
+                    self._subs[key] = kept
                 else:
                     self._subs.pop(key, None)
         return removed
@@ -75,18 +78,13 @@ class EventBus:
         Synchronously dispatch `event` to matching subscribers.
         Exceptions inside callbacks are caught and logged.
         """
-        # Support both new `event.event_type` and legacy `event.type`.
-        event_type: EventType = getattr(event, "event_type", getattr(event, "type"))
+        targets = []
+        targets.extend(self._subs.get(event.type, ()))
+        targets.extend(self._subs.get(self.ALL, ()))
 
-        targets = list(self._subs.get(event_type, ())) + list(self._subs.get(self._ALL, ()))
-        # Iterate over a copy so callbacks can unsubscribe safely inside themselves.
         for entry in list(targets):
             try:
                 if entry.predicate is None or entry.predicate(event):
                     entry.callback(event)
-            except RuntimeError:
-                logger.exception(
-                    "Subscriber error for %s (id=%r)",
-                    event_type.name,
-                    event.id,
-                )
+            except Exception:
+                logger.exception("Subscriber error for %s (id=%s)", event.type, event.id)
