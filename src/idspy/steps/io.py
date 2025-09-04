@@ -1,76 +1,68 @@
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Any
+
+import pandas as pd
 
 from .utils import validate_instance
 from ..core.state import State
 from ..core.step import Step
-from ..data.tabular_data import TabularSchema, TabularData, TabularView
-from ..data.tabular_repository import TabularDataRepository
+from ..data.repository import DataFrameRepository
+from ..data.schema import Schema
 
 
 class LoadTabularData(Step):
-    """Pipeline step that loads tabular data into state."""
+    """Load tabular data into state."""
 
     def __init__(
             self,
             path: str | Path,
-            output_key: str = "data.default",
-            schema: Optional[TabularSchema] = None,
-            pandas_kwargs: Optional[Dict[str, Any]] = None,
+            provide: str = "data.root",
+            schema: Optional[Schema] = None,
             name: Optional[str] = None,
+            **kwargs: Any,
     ) -> None:
         self.path: Path = Path(path)
-        self.output_key = output_key
         self.schema = schema
-        self.pandas_kwargs: Dict[str, Any] = pandas_kwargs or {}
+        self.provide = provide
+        self.kwargs = kwargs
 
         super().__init__(
-            name=name or "load_tabular",
+            name=name or "load_data",
             requires=None,
-            provides=[self.output_key],
+            provides=[provide],
         )
 
     def run(self, state: State) -> None:
-        tab = TabularDataRepository.load(
-            self.path,
-            schema=self.schema,
-            **self.pandas_kwargs,
-        )
-        state[self.output_key] = tab
+        tab = DataFrameRepository.load(self.path, schema=self.schema, **self.kwargs)
+        state[self.provide] = tab
 
 
 class SaveTabularData(Step):
-    """Pipeline step that saves tabular data from state."""
+    """Save tabular data from state."""
 
     def __init__(
             self,
             path: str | Path,
-            input_key: str = "data.default",
-            include_schema: bool = True,
-            index: bool = False,
-            pandas_kwargs: Optional[Dict[str, Any]] = None,
+            require: str = "data.root",
             name: Optional[str] = None,
+            **kwargs: Any,
     ) -> None:
         self.path: Path = Path(path)
-        self.input_key = input_key
-        self.include_schema = include_schema
-        self.index = index
-        self.pandas_kwargs: Dict[str, Any] = pandas_kwargs or {}
+        self.require = require
+        self.kwargs = kwargs
 
         super().__init__(
-            name=name or "save_tabular",
-            requires=[self.input_key],
+            name=name or "save_data",
+            requires=[require],
             provides=None,
         )
 
     def run(self, state: State) -> None:
-        tab: TabularData = state[self.input_key]
-        validate_instance(tab, (TabularData, TabularView), self.name)
+        df = state[self.require]
+        validate_instance(df, pd.DataFrame, self.name)
 
-        TabularDataRepository.save(
-            tab,
-            self.path,
-            include_schema=self.include_schema,
-            index=self.index,
-            **self.pandas_kwargs,
-        )
+        # Default save name from the tail of the state key (e.g., "data.root" -> "root"),
+        # unless explicitly provided via kwargs.
+        save_name = self.kwargs.pop("name", None) or Path(self.require).suffix.lstrip(".")
+
+        DataFrameRepository.save(df, self.path, name=save_name, **self.kwargs)
