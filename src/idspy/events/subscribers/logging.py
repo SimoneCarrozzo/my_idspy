@@ -1,58 +1,71 @@
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Hashable, Literal, Tuple
+from typing import Dict, Hashable, Literal, Tuple, Any
 
 from ..events import Event
 
 
 def _ts_compact(dt: datetime) -> str:
-    local_dt = dt.astimezone()
-    return local_dt.strftime("%H:%M:%S.%f")[:-3]
+    """Local time HH:MM:SS.mmm."""
+    return dt.astimezone().strftime("%H:%M:%S.%f")[:-3]
 
 
 def _fmt_delta_ms(ms: float) -> str:
-    if ms < 1000:
-        return f"{ms:.1f}ms"
-    return f"{ms / 1000:.3f}s"
+    return f"{ms:.1f}ms" if ms < 1000 else f"{ms / 1000:.3f}s"
 
 
-@dataclass
+def _repr_truncated(obj: Any, max_chars: int) -> str:
+    s = repr(obj)
+    return s if len(s) <= max_chars else s[: max_chars - 1] + "…"
+
+
+@dataclass(slots=True)
 class Logger:
-    """
-    Subscriber that logs event information.
-    """
+    """Log basic event info (human or JSON)."""
 
-    logger: logging.Logger = logging.getLogger(__name__)
+    logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
     level: int = logging.INFO
+    as_json: bool = False
+    max_payload_chars: int = 1000  # only for human mode
 
     def __call__(self, event: Event) -> None:
-        self.logger.log(
-            self.level,
-            "[Event: type=%s, id=%s, timestamp=%s] -> payload=%s",
-            event.type,
-            event.id,
-            _ts_compact(event.timestamp),
-            dict(event.payload),
-        )
+        if self.as_json:
+            rec = {
+                "type": event.type,
+                "id": event.id,
+                "ts": event.timestamp.isoformat(),
+                "payload": dict(event.payload),
+                "state_keys": list(event.state.keys()),
+            }
+            # Default=str to avoid serialization errors on exotic payloads
+            self.logger.log(self.level, json.dumps(rec, default=str))
+        else:
+            payload_str = _repr_truncated(dict(event.payload), self.max_payload_chars)
+            state_len = len(event.state)
+            self.logger.log(
+                self.level,
+                "[event type=%s id=%s ts=%s ctx=%d] payload=%s",
+                event.type,
+                event.id,
+                _ts_compact(event.timestamp),
+                state_len,
+                payload_str,
+            )
 
 
 GroupBy = Literal["id", "type", "all"]
 
 
-@dataclass
+@dataclass(slots=True)
 class Tracer:
-    """
-    Subscriber that traces time between consecutive events.
+    """Trace time between consecutive events."""
 
-    - group_by="id":   measure deltas per correlation id (default)
-    - group_by="type": measure deltas per event type
-    - group_by="all":  single global sequence (any event after any event)
-    """
-
-    logger: logging.Logger = logging.getLogger(__name__)
+    logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
     level: int = logging.INFO
     group_by: GroupBy = "type"
+    log_first: bool = True
     _last: Dict[Hashable, Tuple[str, datetime]] = field(default_factory=dict, init=False, repr=False)
 
     def _key(self, event: Event) -> Hashable:
@@ -65,22 +78,21 @@ class Tracer:
     def __call__(self, event: Event) -> None:
         k = self._key(event)
         now = event.timestamp
+        prev = self._last.get(k)
 
-        if k in self._last:
-            prev_id, prev_ts = self._last[k]
+        if prev is None:
+            if self.log_first:
+                self.logger.log(self.level, "[trace %s] start | %s", self.group_by, event.id)
+        else:
+            prev_id, prev_ts = prev
             delta_ms = (now - prev_ts).total_seconds() * 1000.0
             self.logger.log(
                 self.level,
-                "[TRACE] Δ=%s | %s → %s",
+                "[trace %s] Δ=%s | %s → %s",
+                self.group_by,
                 _fmt_delta_ms(delta_ms),
                 prev_id,
                 event.id,
-            )
-        else:
-            self.logger.log(
-                self.level,
-                "[TRACE] start | type=%s",
-                event.type,
             )
 
         self._last[k] = (event.id, now)
@@ -91,3 +103,57 @@ class Tracer:
             self._last.clear()
         else:
             self._last.pop(key, None)
+
+
+def _fmt_bytes(n: int | float) -> str:
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0
+    x = float(n)
+    while x >= 1024 and i < len(units) - 1:
+        x /= 1024.0
+        i += 1
+    return f"{x:.1f}{units[i]}"
+
+
+@dataclass(slots=True)
+class DataFrameProfiler:
+    """Profile a DataFrame carried by events."""
+
+    logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
+    level: int = logging.INFO
+    key: str = "df"
+    deep_memory: bool = True
+    include_index: bool = False
+    max_dtype_items: int = 8  # top-N dtype counts to show
+
+    def _pick(self, event: Event) -> Any:
+        return event.state.get(self.key)
+
+    def __call__(self, event: Event) -> None:
+        df = self._pick(event)
+        if df is None:
+            return
+        try:
+            # duck-typing to avoid hard dependency on pandas in this module
+            rows, cols = getattr(df, "shape", (None, None))
+            mem = df.memory_usage(index=self.include_index, deep=self.deep_memory).sum()
+            dtypes = getattr(df, "dtypes", None)
+            dtype_summary = ""
+            if dtypes is not None:
+                vc = dtypes.astype(str).value_counts()  # type: ignore[no-untyped-call]
+                # prefer stable ordering: count desc, dtype name asc
+                items = sorted(vc.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))
+                items = items[: self.max_dtype_items]
+                dtype_summary = ", ".join(f"{dt}:{int(cnt)}" for dt, cnt in items)
+
+            self.logger.log(
+                self.level,
+                "[df id=%s] shape=(%s,%s) mem=%s dtypes={%s}",
+                event.id,
+                rows,
+                cols,
+                _fmt_bytes(mem),
+                dtype_summary,
+            )
+        except Exception:
+            self.logger.exception("DataFrameProfiler error (type=%s id=%s)", event.type, event.id)

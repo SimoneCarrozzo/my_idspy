@@ -10,24 +10,18 @@ Subscriber = Callable[[Event], None]
 Predicate = Callable[[Event], bool]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _Entry:
+    """Subscription entry."""
     callback: Subscriber
     predicate: Optional[Predicate]
     token: int  # unique id for unsubscription
 
 
 class EventBus:
-    """
-    Minimal synchronous event bus.
+    """Minimal synchronous event bus."""
 
-    - Subscribe to a specific event type (str) or to ALL events (event_type=None).
-    - Optional predicate for fine-grained filtering.
-    - Unsubscribe via token.
-    - Decorator-based registration: `@bus.on("pipeline.start")` or `@bus.on()`.
-    """
-
-    ALL: Final[Optional[str]] = None  # sentinel for "all events"
+    ALL: Final[Optional[str]] = None  # subscribe to all events
 
     def __init__(self) -> None:
         self._subs: Dict[Optional[str], List[_Entry]] = {}
@@ -39,7 +33,7 @@ class EventBus:
             event_type: Optional[str] = None,
             predicate: Optional[Predicate] = None,
     ) -> int:
-        """Register `callback` for `event_type` (use None for ALL). Returns a token."""
+        """Register callback; returns a token."""
         token = self._next_token
         self._next_token += 1
         self._subs.setdefault(event_type, []).append(_Entry(callback, predicate, token))
@@ -50,18 +44,16 @@ class EventBus:
             event_type: Optional[str] = None,
             predicate: Optional[Predicate] = None,
     ) -> Callable[[Subscriber], Subscriber]:
-        """
-        Decorator to subscribe a handler.
-        """
+        """Decorator to subscribe a handler."""
 
         def decorator(fn: Subscriber) -> Subscriber:
-            self.subscribe(event_type, fn, predicate=predicate)
+            self.subscribe(fn, event_type=event_type, predicate=predicate)  # FIX: callback first
             return fn
 
         return decorator
 
     def unsubscribe(self, token: int) -> bool:
-        """Remove previously subscribed callback by token. Returns True if removed."""
+        """Unsubscribe by token; returns True if removed."""
         removed = False
         for key, entries in list(self._subs.items()):
             kept = [e for e in entries if e.token != token]
@@ -74,11 +66,8 @@ class EventBus:
         return removed
 
     def publish(self, event: Event) -> None:
-        """
-        Synchronously dispatch `event` to matching subscribers.
-        Exceptions inside callbacks are caught and logged.
-        """
-        targets = []
+        """Dispatch event to subscribers; log handler errors."""
+        targets: List[_Entry] = []
         targets.extend(self._subs.get(event.type, ()))
         targets.extend(self._subs.get(self.ALL, ()))
 
