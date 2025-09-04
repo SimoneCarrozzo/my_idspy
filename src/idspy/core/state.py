@@ -2,20 +2,26 @@ from collections.abc import MutableMapping, Iterator
 from types import MappingProxyType
 from typing import Any, Mapping
 
+_SEPARATOR = "."
+
 
 class ScopedView(MutableMapping[str, Any]):
-    """A mapping that exposes only keys in `data` under a given `prefix`."""
+    """Mutable view over keys under a given prefix."""
+
+    __slots__ = ("_data", "_prefix", "_prefix_dot")
 
     def __init__(self, data: dict[str, Any], prefix: str):
         if not isinstance(prefix, str) or not prefix:
             raise ValueError("prefix must be a non-empty string")
-        if prefix.endswith("."):
-            raise ValueError("prefix must not end with '.'")
+        if prefix.endswith(_SEPARATOR):
+            raise ValueError(f"prefix must not end with '{_SEPARATOR}'")
         self._data = data
         self._prefix = prefix
-        self._prefix_dot = prefix + "."
+        self._prefix_dot = prefix + _SEPARATOR
 
     def _qualify(self, key: str) -> str:
+        if not isinstance(key, str) or not key:
+            raise KeyError("key must be a non-empty string")
         return f"{self._prefix_dot}{key}"
 
     def __getitem__(self, key: str) -> Any:
@@ -42,15 +48,21 @@ class ScopedView(MutableMapping[str, Any]):
         for k in list(self):
             del self[k]
 
+    def to_dict(self) -> dict[str, Any]:
+        """Shallow copy of the scoped mapping."""
+        return {k: self[k] for k in self}
+
     def __repr__(self) -> str:
         keys = list(self)
         preview = ", ".join(keys[:5])
         more = "..." if len(keys) > 5 else ""
-        return f"ScopedView(prefix={self._prefix!r}, keys=[{preview}{more}])"
+        return f"ScopedView(prefix={self._prefix!r}, size={len(keys)}, keys=[{preview}{more}])"
 
 
 class State(MutableMapping[str, Any]):
-    """A simple mutable key-value store with read-only views and prefix scoping."""
+    """Mutable key-value store with readonly and scoped views."""
+
+    __slots__ = ("_data",)
 
     def __init__(self, initial: dict[str, Any] | None = None):
         self._data: dict[str, Any] = dict(initial or {})
@@ -70,20 +82,31 @@ class State(MutableMapping[str, Any]):
     def __len__(self) -> int:
         return len(self._data)
 
-    def get_view(self) -> Mapping[str, Any]:
-        """Return a shallow, read-only view of the underlying data."""
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and key in self._data
+
+    def clear(self) -> None:
+        self._data.clear()
+
+    def readonly(self) -> Mapping[str, Any]:
+        """Shallow readonly view of the data."""
         return MappingProxyType(self._data)
 
-    def scope(self, prefix: str) -> MutableMapping[str, Any]:
-        """Return a mutable view restricted to keys under `prefix + '.'`."""
+    def scope(self, prefix: str) -> ScopedView:
+        """Mutable view restricted to keys under `prefix + '.'`."""
         return ScopedView(self._data, prefix)
 
     def copy(self) -> "State":
         """Shallow copy of the state."""
         return State(dict(self._data))
 
+    def to_dict(self) -> dict[str, Any]:
+        """Shallow copy as a plain dict."""
+        return dict(self._data)
+
     def __repr__(self) -> str:
+        n = len(self._data)
         items = list(self._data.items())[:6]
         body = ", ".join(f"{k!r}: {v!r}" for k, v in items)
-        suffix = ", ..." if len(self._data) > 6 else ""
-        return f"State({{{body}{suffix}}})"
+        suffix = ", ..." if n > 6 else ""
+        return f"State(size={n}, data={{{body}{suffix}}})"
