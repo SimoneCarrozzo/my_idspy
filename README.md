@@ -40,11 +40,11 @@ ids-framework/
 3. Activate the virtual environment:
     - On macOS/Linux:
       ```bash
-      source venv/bin/activate
+      source .venv/bin/activate
       ```
     - On Windows:
       ```bash
-      venv\Scripts\activate
+      .venv\Scripts\activate
       ```
 
 4. Install the required dependencies:
