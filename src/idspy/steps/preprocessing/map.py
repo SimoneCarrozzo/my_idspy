@@ -1,13 +1,14 @@
-from typing import Final, Optional, Dict
+from typing import Optional, Dict
 
 import numpy as np
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 
-from ..utils import validate_instance
+from ..utils import validate_instance, validate_schema_and_split
 from ...core.state import State
 from ...core.step import FitAwareStep
-from ...data.tabular_data import TabularData, TabularView
+from ...data.split import SplitName
+from ...data.tab_accessor import reattach_meta
 
 
 class FrequencyMap(FitAwareStep):
@@ -17,31 +18,33 @@ class FrequencyMap(FitAwareStep):
             self,
             max_levels: Optional[int] = None,
             default: int = 0,
-            input_key: str = "data.default",
-            fit_key: str = "data.train",
-            output_key: Optional[str] = None,
+            source: str = "data.root",
+            target: Optional[str] = None,
             name: Optional[str] = None,
     ) -> None:
-        self.max_levels: Final[Optional[int]] = max_levels
-        self.default: Final[int] = default
-        self.input_key: Final[str] = input_key
-        self.fit_key: Final[str] = fit_key
-        self.output_key: Final[str] = output_key or input_key
+        self.max_levels = max_levels
+        self.default = default
+        self.source = source
+        self.target = target or source
         self.cat_types: Dict[str, CategoricalDtype] = {}
 
         super().__init__(
             name=name or "frequency_map",
-            requires=[self.input_key, self.fit_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
-    def fit_core(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.fit_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+    def fit_impl(self, state: State) -> None:
+        """Infer ordered categories by frequency from train split."""
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
+        validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
+        train_df = obj.tab.train
         self.cat_types.clear()
-        for col in data.schema.categorical:
-            vc = data.df[col].value_counts(dropna=False)
+
+        for col in train_df.tab.categorical.columns:
+            vc = train_df[col].value_counts(dropna=False)
             cats = (
                 vc.index.tolist()
                 if self.max_levels is None
@@ -50,79 +53,90 @@ class FrequencyMap(FitAwareStep):
             self.cat_types[col] = CategoricalDtype(categories=cats, ordered=True)
 
     def run(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.input_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+        """Apply learned frequency mapping to categorical columns."""
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        out = data.df.copy()
-        for col in data.schema.categorical:
-            # If a column wasn't present during fit, skip it.
+        out = obj.copy()
+        for col in obj.tab.categorical.columns:
             if col not in self.cat_types or col not in out.columns:
                 continue
-
             s = out[col].astype(self.cat_types[col])
             codes = s.cat.codes.to_numpy()  # -1 for unknowns
             mapped = np.where(codes != -1, codes + 1, self.default).astype("int32")
             out[col] = mapped
 
-        data.df = out
-        state[self.output_key] = data
+        state[self.target] = reattach_meta(obj, out)
 
 
-class TargetMap(FitAwareStep):
-    """Encode target: binary with `benign_tag`, else ordinal categories."""
+class LabelMap(FitAwareStep):
+    """Encode `target`: binary with `benign_tag`, else ordinal categories."""
 
     def __init__(
             self,
             benign_tag: Optional[str] = None,
-            target_out: Optional[str] = None,
             default: int = -1,
-            input_key: str = "data.default",
-            fit_key: str = "data.train",
-            output_key: Optional[str] = None,
+            source: str = "data.root",
+            target: Optional[str] = None,
             name: Optional[str] = None,
     ) -> None:
-        self.benign_tag: Final[Optional[str]] = benign_tag
-        self.target_out: Final[Optional[str]] = target_out
-        self.default: Final[int] = default
-        self.input_key: Final[str] = input_key
-        self.fit_key: Final[str] = fit_key
-        self.output_key: Final[str] = output_key or input_key
+        self.benign_tag = benign_tag
+        self.default = default
+        self.source = source
+        self.target = target or source
         self.cat_types: Optional[CategoricalDtype] = None
 
         super().__init__(
             name=name or "target_map",
-            requires=[self.input_key, self.fit_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
-    def fit_core(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.fit_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+    def fit_impl(self, state: State) -> None:
+        """Learn ordered categories for the target col (if not binary)."""
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        if self.benign_tag is None:
-            vc = data.target.value_counts(dropna=False)
-            self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
+        validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
+        train_df = obj.tab.train
+        if self.benign_tag is not None:
+            self.cat_types = None
+            return
+
+        tgt_cols = train_df.tab.target.columns
+        if len(tgt_cols) != 1:
+            raise ValueError(f"Expected exactly 1 target column, found {len(tgt_cols)}: {tgt_cols}")
+        tgt_col = tgt_cols[0]
+
+        vc = train_df[tgt_col].value_counts(dropna=False)
+        self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
 
     def run(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.input_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+        """Apply target encoding (binary or ordinal)."""
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
+
+        tgt_cols = obj.tab.target.columns
+        if len(tgt_cols) != 1:
+            raise ValueError(f"Expected exactly 1 target column, found {len(tgt_cols)}: {tgt_cols}")
+        tgt_col = tgt_cols[0]
+
+        prev = obj[tgt_col].copy()
 
         if self.benign_tag is not None:
-            # Binary: benign_tag -> 0, everything else -> 1
-            target = data.target.replace({self.benign_tag: 0}).where(lambda x: x == 0, 1)
-            target = target.astype("int32")
+            tgt = prev.replace({self.benign_tag: 0}).where(lambda x: x == 0, 1).astype("int32")
         else:
-            s = data.target.astype(self.cat_types)
-            codes = s.cat.codes.to_numpy()
-            target = pd.Series(
+            if self.cat_types is None:
+                raise RuntimeError("LabelMap was not fitted with category types.")
+            s = prev.astype(self.cat_types)
+
+            codes = s.cat.codes.to_numpy()  # -1 for unknowns
+            tgt = pd.Series(
                 np.where(codes != -1, codes + 1, self.default).astype("int32"),
                 index=s.index,
-                name=data.schema.target,
+                name=tgt_col,
             )
 
-        # Column name
-        out_name = self.target_out or f"{data.schema.target}_encoded"
-        target.name = out_name
-
-        data.set_df(target)
-        state[self.output_key] = data
+        obj[f"original_{tgt_col}"] = prev
+        obj.tab.target = tgt
+        state[self.target] = obj

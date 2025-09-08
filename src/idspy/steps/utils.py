@@ -32,3 +32,40 @@ def validate_instance(
         expected = "/".join(t.__name__ for t in types_tuple)
         actual = obj.__name__ if isinstance(obj, type) else type(obj).__name__
         raise TypeError(f"{step_name}: expected {expected}, found {actual}.")
+
+
+import pandas as pd
+from typing import Optional, List
+
+
+def validate_schema(df: pd.DataFrame, source_name: str) -> None:
+    """Ensure dataframe has a schema."""
+    if "_schema" not in df.attrs:
+        raise ValueError(f"{source_name} must have a '_schema' attribute.")
+
+
+def validate_split(
+        df: pd.DataFrame,
+        source_name: str,
+        split_names: Optional[List[str]] = None
+) -> None:
+    """Ensure dataframe has splits and optionally check specific split names."""
+    if "_splits" not in df.attrs:
+        raise ValueError(f"{source_name} must have a '_splits' attribute.")
+
+    if split_names:
+        for split_name in split_names:
+            try:
+                getattr(df.tab, split_name)
+            except KeyError as e:
+                raise ValueError(f"{source_name} must have a '{split_name}' split defined.") from e
+
+
+def validate_schema_and_split(
+        df: pd.DataFrame,
+        source_name: str,
+        split_names: Optional[List[str]] = None
+) -> None:
+    """Ensure dataframe has schema and required splits."""
+    validate_schema(df, source_name)
+    validate_split(df, source_name, split_names)

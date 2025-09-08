@@ -1,27 +1,23 @@
-from typing import Final
-
 import numpy as np
 import pandas as pd
 
-from ..utils import validate_instance
+from ..utils import validate_instance, validate_schema_and_split
 from ...core.state import State
 from ...core.step import FitAwareStep
-from ...data.tabular_data import TabularData, TabularView
+from ...data.split import SplitName
 
 
 class StandardScale(FitAwareStep):
-    """Standardize numeric columns using mean/std with overflow-safe scaling."""
+    """Standardize numerical columns using mean/std with overflow-safe scaling."""
 
     def __init__(
             self,
-            input_key: str = "data.default",
-            fit_key: str = "data.train",
-            output_key: str | None = None,
+            source: str = "data.root",
+            target: str | None = None,
             name: str | None = None,
     ) -> None:
-        self.input_key: Final[str] = input_key
-        self.fit_key: Final[str] = fit_key
-        self.output_key: Final[str] = output_key or input_key
+        self.source = source
+        self.target = target or source
 
         self._scale: pd.Series | None = None
         self._means_s: pd.Series | None = None
@@ -29,18 +25,27 @@ class StandardScale(FitAwareStep):
 
         super().__init__(
             name=name or "standard_scale",
-            requires=[self.input_key, self.fit_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
-    def fit_core(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.fit_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+    def fit_impl(self, state: State) -> None:
+        """Fit scaling stats on train split (overflow-safe)."""
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
+        validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
 
-        num = data.numeric.astype(np.float64, copy=False)
+        num = obj.tab.train.tab.numerical
+        if num.shape[1] == 0:
+            self._scale = pd.Series(dtype="float64")
+            self._means_s = pd.Series(dtype="float64")
+            self._stds_s = pd.Series(dtype="float64")
+            return
 
-        scale = num.abs().max(axis=0).fillna(0.0)
-        scale = scale.where(scale > 0.0, 1.0)
+        num = num.astype(np.float64, copy=False).replace([np.inf, -np.inf], np.nan)
+
+        # overflow-safe:  mean/std over scaled values
+        scale = num.abs().max(axis=0).fillna(0.0).where(lambda s: s > 0.0, 1.0)
         num_s = num.divide(scale, axis="columns")
 
         self._scale = scale
@@ -48,59 +53,81 @@ class StandardScale(FitAwareStep):
         self._stds_s = num_s.std(ddof=0).replace(0.0, 1.0)
 
     def run(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.input_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+        """Apply standardization to numerical columns."""
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        num = data.numeric.astype(np.float64, copy=False).replace([np.inf, -np.inf], np.nan)
+        num = obj.tab.numerical
+        if num.shape[1] == 0:
+            state[self.target] = obj
+            return
 
-        # Align saved stats to current columns
-        scale = self._scale.reindex(num.columns, fill_value=1.0)
-        means_s = self._means_s.reindex(num.columns, fill_value=0.0)
-        stds_s = self._stds_s.reindex(num.columns, fill_value=1.0)
+        num = num.astype(np.float64, copy=False).replace([np.inf, -np.inf], np.nan)
+
+        cols = num.columns
+        scale = self._scale.reindex(cols, fill_value=1.0)
+        means_s = self._means_s.reindex(cols, fill_value=0.0)
+        stds_s = self._stds_s.reindex(cols, fill_value=1.0)
 
         num_s = num.divide(scale, axis="columns")
-        data.numeric = (num_s - means_s) / stds_s
+        obj.tab.numerical = (num_s - means_s) / stds_s
 
-        state[self.output_key] = data
+        state[self.target] = obj
 
 
 class MinMaxScale(FitAwareStep):
-    """Scale numeric columns to [0, 1] using min/max."""
+    """Scale numerical columns to [0, 1] via min/max."""
 
     def __init__(
             self,
-            input_key: str = "data.default",
-            fit_key: str = "data.train",
-            output_key: str | None = None,
+            source: str = "data.root",
+            target: str | None = None,
             name: str | None = None,
     ) -> None:
-        self.input_key: Final[str] = input_key
-        self.fit_key: Final[str] = fit_key
-        self.output_key: Final[str] = output_key or input_key
+        self.source = source
+        self.target = target or source
 
         self._min: pd.Series | None = None
         self._max: pd.Series | None = None
 
         super().__init__(
             name=name or "min_max_scale",
-            requires=[self.input_key, self.fit_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
-    def fit_core(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.fit_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+    def fit_impl(self, state: State) -> None:
+        """Fit min/max on train split."""
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
+        validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
 
-        self._min = data.numeric.min()
-        self._max = data.numeric.max()
+        num = obj.tab.train.tab.numerical
+        if num.shape[1] == 0:
+            self._min = pd.Series(dtype="float64")
+            self._max = pd.Series(dtype="float64")
+            return
+
+        num = num.astype(np.float64, copy=False).replace([np.inf, -np.inf], np.nan)
+        self._min = num.min()
+        self._max = num.max()
 
     def run(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.input_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+        """Apply min-max scaling to numerical columns."""
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        col_min = self._min.reindex(data.numeric.columns, fill_value=0)  # type: ignore[union-attr]
-        col_max = self._max.reindex(data.numeric.columns, fill_value=1)  # type: ignore[union-attr]
-        den = (col_max - col_min).replace(0, 1)
+        num = obj.tab.numerical
+        if num.shape[1] == 0:
+            state[self.target] = obj
+            return
 
-        data.numeric = (data.numeric - col_min) / den
-        state[self.output_key] = data
+        num = num.astype(np.float64, copy=False).replace([np.inf, -np.inf], np.nan)
+
+        cols = num.columns
+        col_min = self._min.reindex(cols, fill_value=0.0)
+        col_max = self._max.reindex(cols, fill_value=1.0)
+        den = (col_max - col_min).replace(0.0, 1.0)
+
+        obj.tab.numerical = (num - col_min) / den
+        state[self.target] = obj

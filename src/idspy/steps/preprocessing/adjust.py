@@ -1,11 +1,10 @@
-from typing import Final
-
 import numpy as np
+import pandas as pd
 
-from ..utils import validate_instance
+from ..utils import validate_instance, validate_schema
 from ...core.state import State
 from ...core.step import Step
-from ...data.tabular_data import Data, DataView, TabularData, TabularView
+from ...data.tab_accessor import reattach_meta
 
 
 class DropNulls(Step):
@@ -13,26 +12,25 @@ class DropNulls(Step):
 
     def __init__(
             self,
-            input_key: str = "data.default",
-            output_key: str | None = None,
+            source: str = "data.root",
+            target: str | None = None,
             name: str | None = None,
     ) -> None:
-        self.input_key: Final[str] = input_key
-        self.output_key: Final[str] = output_key or input_key
+        self.source = source
+        self.target = target or source
 
         super().__init__(
             name=name or "drop_nulls",
-            requires=[self.input_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
     def run(self, state: State) -> None:
-        data: Data | DataView = state[self.input_key]
-        validate_instance(data, (Data, DataView), self.name)
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        df = data.df
-        data.df = df[~df.isin([np.inf, -np.inf, np.nan]).any(axis=1)]
-        state[self.output_key] = data
+        obj = obj.replace([np.inf, -np.inf], np.nan).dropna()
+        state[self.target] = obj
 
 
 class Filter(Step):
@@ -41,49 +39,52 @@ class Filter(Step):
     def __init__(
             self,
             query: str,
-            input_key: str = "data.default",
-            output_key: str | None = None,
+            source: str = "data.root",
+            target: str | None = None,
             name: str | None = None,
     ) -> None:
-        self.query: Final[str] = query
-        self.input_key: Final[str] = input_key
-        self.output_key: Final[str] = output_key or input_key
+        self.query = query
+        self.source = source
+        self.target = target or source
 
         super().__init__(
             name=name or "filter",
-            requires=[self.input_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
     def run(self, state: State) -> None:
-        data: Data | DataView = state[self.input_key]
-        validate_instance(data, (Data, DataView), self.name)
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        state[self.output_key] = data.view_from_query(self.query)
+        out = obj.query(self.query)
+        out = reattach_meta(obj, out)
+        state[self.target] = out
 
 
 class Log1p(Step):
-    """Apply np.log1p to numeric columns."""
+    """Apply np.log1p to numerical columns."""
 
     def __init__(
             self,
-            input_key: str = "data.default",
-            output_key: str | None = None,
+            source: str = "data.root",
+            target: str | None = None,
             name: str | None = None,
     ) -> None:
-        self.input_key: Final[str] = input_key
-        self.output_key: Final[str] = output_key or input_key
+        self.source = source
+        self.target = target or source
 
         super().__init__(
             name=name or "log1p",
-            requires=[self.input_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
     def run(self, state: State) -> None:
-        data: TabularData | TabularView = state[self.input_key]
-        validate_instance(data, (TabularData, TabularView), self.name)
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        num = data.numeric
-        data.numeric = np.log1p(num)
-        state[self.output_key] = data
+        validate_schema(obj, self.name)
+
+        obj.tab.numerical = np.log1p(obj.tab.numerical)
+        state[self.target] = obj

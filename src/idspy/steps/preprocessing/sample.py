@@ -1,105 +1,108 @@
-from typing import Final
+import pandas as pd
 
 from ..utils import validate_instance
 from ...core.state import State
 from ...core.step import Step
-from ...data.tabular_data import Data, DataView
+from ...data.tab_accessor import reattach_meta
 
 
 class DownsampleToMinority(Step):
-    """Downsample each class to the minority class size."""
+    """Downsample each class to the size of the minority class."""
 
     def __init__(
             self,
-            target: str,
-            input_key: str = "data.default",
-            output_key: str | None = None,
+            class_col: str,
+            source: str = "data.root",
+            target: str | None = None,
             name: str | None = None,
             random_state: int | None = None,
     ) -> None:
-        self.target: Final[str] = target
-        self.input_key: Final[str] = input_key
-        self.output_key: Final[str] = output_key or input_key
-        self.random_state: Final[int | None] = random_state
+        self.class_col = class_col
+        self.source = source
+        self.target = target or source
+        self.random_state = random_state
 
         super().__init__(
             name=name or "downsample_to_minority",
-            requires=[self.input_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
     def run(self, state: State) -> None:
-        data: Data | DataView = state[self.input_key]
-        validate_instance(data, (Data, DataView), self.name)
-        df = data.df
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        if self.target not in df.columns or df.empty:
-            state[self.output_key] = data
+        if obj.empty or self.class_col not in obj.columns:
+            state[self.target] = obj
             return
 
-        counts = df[self.target].value_counts(dropna=False)
+        counts = obj[self.class_col].value_counts(dropna=False)
         if counts.empty:
-            state[self.output_key] = data
+            state[self.target] = obj
             return
 
         minority = int(counts.min())
-        shuffled = df.sample(frac=1, replace=False, random_state=self.random_state)
+        if minority <= 0:
+            sampled = obj.iloc[0:0]  # empty but keep schema
+            state[self.target] = reattach_meta(obj, sampled)
+            return
 
+        shuffled = obj.sample(frac=1.0, replace=False, random_state=self.random_state)
         sampled = (
-            shuffled.groupby(self.target, dropna=False, group_keys=False, sort=False)
+            shuffled.groupby(self.class_col, dropna=False, group_keys=False, sort=False)
             .head(minority)
         )
 
-        state[self.output_key] = data.view(sampled.index.tolist())
+        state[self.target] = reattach_meta(obj, sampled)
 
 
 class Downsample(Step):
-    """Downsample rows globally or per-class (if `target` is set)."""
+    """Downsample rows globally or per class."""
 
     def __init__(
             self,
             frac: float,
+            class_col: str | None = None,
+            source: str = "data.root",
             target: str | None = None,
-            input_key: str = "data.default",
-            output_key: str | None = None,
             name: str | None = None,
             random_state: int | None = None,
     ) -> None:
-        if not (0 < frac <= 1):
+        if not (0.0 < frac <= 1.0):
             raise ValueError(f"downsample: frac must be in (0, 1], got {frac}.")
 
-        self.frac: Final[float] = frac
-        self.target: Final[str | None] = target
-        self.input_key: Final[str] = input_key
-        self.output_key: Final[str] = output_key or input_key
-        self.random_state: Final[int | None] = random_state
+        self.frac = frac
+        self.class_col = class_col
+        self.source = source
+        self.target = target or source
+        self.random_state = random_state
 
         super().__init__(
             name=name or "downsample",
-            requires=[self.input_key],
-            provides=[self.output_key],
+            requires=[self.source],
+            provides=[self.target],
         )
 
     def run(self, state: State) -> None:
-        data: Data | DataView = state[self.input_key]
-        validate_instance(data, (Data, DataView), self.name)
-        df = data.df
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
 
-        if df.empty:
-            state[self.output_key] = data
+        if obj.empty:
+            state[self.target] = obj
             return
 
-        if self.target:
-            if self.target not in df.columns:
-                state[self.output_key] = data
+        if self.class_col is not None:
+            # Per-class sampling
+            if self.class_col not in obj.columns:
+                state[self.target] = obj
                 return
 
             sampled = (
-                df.groupby(self.target, group_keys=False, sort=False)
+                obj.groupby(self.class_col, dropna=False, group_keys=False, sort=False)
                 .sample(frac=self.frac, replace=False, random_state=self.random_state)
             )
-            selected_idx = sampled.index
         else:
-            selected_idx = df.sample(frac=self.frac, replace=False, random_state=self.random_state).index
+            # Global sampling
+            sampled = obj.sample(frac=self.frac, replace=False, random_state=self.random_state)
 
-        state[self.output_key] = data.view(selected_idx.tolist())
+        state[self.target] = reattach_meta(obj, sampled)
