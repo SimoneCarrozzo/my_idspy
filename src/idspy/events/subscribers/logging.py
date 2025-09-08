@@ -2,7 +2,9 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Hashable, Literal, Tuple, Any
+from typing import Any, Dict, Hashable, Literal, Tuple
+
+import numpy as np
 
 from ..events import Event
 
@@ -33,24 +35,23 @@ class Logger:
     def __call__(self, event: Event) -> None:
         if self.as_json:
             rec = {
+                "kind": "event",
                 "type": event.type,
                 "id": event.id,
                 "ts": event.timestamp.isoformat(),
                 "payload": dict(event.payload),
                 "state_keys": list(event.state.keys()),
             }
-            # Default=str to avoid serialization errors on exotic payloads
+            # default=str to avoid serialization errors on exotic payloads
             self.logger.log(self.level, json.dumps(rec, default=str))
         else:
             payload_str = _repr_truncated(dict(event.payload), self.max_payload_chars)
-            state_len = len(event.state)
             self.logger.log(
                 self.level,
-                "[event type=%s id=%s ts=%s ctx=%d] payload=%s",
-                event.type,
+                "EVENT type=%s id=%s ts=%s | payload=%s",
+                str(event.type),
                 event.id,
                 _ts_compact(event.timestamp),
-                state_len,
                 payload_str,
             )
 
@@ -82,13 +83,18 @@ class Tracer:
 
         if prev is None:
             if self.log_first:
-                self.logger.log(self.level, "[trace %s] start | %s", self.group_by, event.id)
+                self.logger.log(
+                    self.level,
+                    "TRACE group=%s start id=%s",
+                    self.group_by,
+                    event.id,
+                )
         else:
             prev_id, prev_ts = prev
             delta_ms = (now - prev_ts).total_seconds() * 1000.0
             self.logger.log(
                 self.level,
-                "[trace %s] Δ=%s | %s → %s",
+                "TRACE group=%s dt=%s | from=%s -> to=%s",
                 self.group_by,
                 _fmt_delta_ms(delta_ms),
                 prev_id,
@@ -121,7 +127,7 @@ class DataFrameProfiler:
 
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
     level: int = logging.INFO
-    key: str = "df"
+    key: str = "data.root"
     deep_memory: bool = True
     include_index: bool = False
     max_dtype_items: int = 8  # top-N dtype counts to show
@@ -141,19 +147,22 @@ class DataFrameProfiler:
             dtype_summary = ""
             if dtypes is not None:
                 vc = dtypes.astype(str).value_counts()  # type: ignore[no-untyped-call]
-                # prefer stable ordering: count desc, dtype name asc
+                # stable ordering: count desc, dtype name asc
                 items = sorted(vc.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))
                 items = items[: self.max_dtype_items]
                 dtype_summary = ", ".join(f"{dt}:{int(cnt)}" for dt, cnt in items)
 
+            nans = df.isna().sum().sum()
+
             self.logger.log(
                 self.level,
-                "[df id=%s] shape=(%s,%s) mem=%s dtypes={%s}",
+                "DATAFRAME id=%s shape=(%s,%s) mem=%s nans=%s dtypes=%s",
                 event.id,
                 rows,
                 cols,
                 _fmt_bytes(mem),
+                nans,
                 dtype_summary,
             )
         except Exception:
-            self.logger.exception("DataFrameProfiler error (type=%s id=%s)", event.type, event.id)
+            self.logger.exception("DATAFRAME error type=%s id=%s", event.type, event.id)
