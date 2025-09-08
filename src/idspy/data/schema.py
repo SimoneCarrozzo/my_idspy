@@ -71,7 +71,7 @@ class Schema:
         return self.roles[role]
 
     def feature_columns(self) -> List[str]:
-        """Return feature columns (exclude target)."""
+        """Return feature columns (exclude source)."""
         exclude = set(self.roles[ColumnRole.TARGET])
         ordered: List[str] = []
         for r in (ColumnRole.NUMERICAL, ColumnRole.CATEGORICAL):

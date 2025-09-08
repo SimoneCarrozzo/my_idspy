@@ -48,6 +48,12 @@ class Split:
         valid = pd.Index(saved).intersection(df.index)
         return df.index.get_indexer_for(valid)
 
+    def clone(self) -> "Split":
+        """Return a deep copy of this Split (with independent Index objects)."""
+        return Split(
+            mapping={k: v.copy() for k, v in self.mapping.items()}
+        )
+
 
 def _validate_split_sizes(
         train_size: float, val_size: float, test_size: float
@@ -84,14 +90,14 @@ def _split_indices(
         shuffle: bool = True,
 ) -> Dict[str, pd.Index]:
     """
-    Core splitter: if `target` is provided, uses stratification; otherwise random split.
+    Core splitter: if `source` is provided, uses stratification; otherwise random split.
     Returns a mapping {'train': Index, 'val': Index, 'test': Index}.
     """
     _validate_split_sizes(train_size, val_size, test_size)
 
     if target is not None and len(target) != len(df):
         raise ValueError(
-            f"Length of `target` ({len(target)}) must match number of rows in `df` ({len(df)})"
+            f"Length of `source` ({len(target)}) must match number of rows in `df` ({len(df)})"
         )
 
     train_idx, remaining_idx = train_test_split(

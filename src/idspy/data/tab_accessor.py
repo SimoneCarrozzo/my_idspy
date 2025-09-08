@@ -6,34 +6,37 @@ from pandas.api.extensions import register_dataframe_accessor
 
 from .schema import Schema, ColumnRole
 from .split import Split, SplitName
+from ..services.profiler import time_profiler
 
 
 @register_dataframe_accessor("tab")
 class TabAccessor:
-    """Pandas accessor for schema and split management."""
+    """Schema + split accessor."""
 
     def __init__(self, pandas_obj: pd.DataFrame):
         self._obj = pandas_obj
         self._obj.attrs.setdefault("_schema", Schema())
         self._obj.attrs.setdefault("_splits", Split())
 
-    def _attach_meta(self, out: pd.DataFrame, *, narrow: bool = True) -> pd.DataFrame:
-        """
-        Attach schema to `out` allowing for chained operations (df.tab.train.tab.numeric).
-        """
-        schema = self.schema.clone_pruned(out.columns) if narrow else self.schema
-        out.attrs["_schema"] = schema
+    def _attach_meta(self, out: pd.DataFrame) -> pd.DataFrame:
+        """Attach schema (optionally pruned) and splits to `out`."""
+        out.attrs["_schema"] = self.schema.clone_pruned(out.columns)
+        out.attrs["_splits"] = self.splits.clone()
         return out
 
     @property
     def schema(self) -> Schema:
         return self._obj.attrs["_schema"]
 
-    def set_schema(self, **roles: List[str]) -> pd.DataFrame:
-        """Replace schema with new role definitions (accepts string keys)."""
-        sch = Schema(strict=self.schema.strict)
-        for role_name, cols in roles.items():
-            sch.add(cols, ColumnRole.from_name(role_name))
+    def set_schema(self, schema: Union["Schema", None] = None, **roles: List[str]) -> pd.DataFrame:
+        """Replace schema with new role definitions (string keys allowed)."""
+        if schema is not None:
+            sch = schema
+        else:
+            sch = Schema(strict=self.schema.strict)
+            for role_name, cols in roles.items():
+                sch.add(cols, ColumnRole.from_name(role_name))
+
         self._obj.attrs["_schema"] = sch
         return self._obj
 
@@ -53,10 +56,11 @@ class TabAccessor:
 
     @property
     def features(self) -> pd.DataFrame:
+        """Feature view (excludes target)."""
         self.schema.prune_missing(self._obj.columns)
         cols = self.schema.feature_columns()
         out = self._obj.loc[:, cols]
-        return self._attach_meta(out, narrow=True)
+        return self._attach_meta(out)
 
     @features.setter
     def features(self, updated: pd.DataFrame) -> None:
@@ -66,12 +70,13 @@ class TabAccessor:
 
     @property
     def target(self) -> pd.DataFrame:
+        """Target view."""
         self.schema.prune_missing(self._obj.columns)
         cols = self.schema.columns(ColumnRole.TARGET)
         if not cols:
             raise ValueError("No target is defined in the schema.")
         out = self._obj.loc[:, cols]
-        return self._attach_meta(out, narrow=True)
+        return self._attach_meta(out)
 
     @target.setter
     def target(self, updated: pd.DataFrame) -> None:
@@ -82,24 +87,26 @@ class TabAccessor:
         self._assign_block(updated, rows=None, cols=cols)
 
     @property
-    def numeric(self) -> pd.DataFrame:
+    def numerical(self) -> pd.DataFrame:
+        """Numerical columns view."""
         self.schema.prune_missing(self._obj.columns)
         cols = self.schema.columns(ColumnRole.NUMERICAL)
         out = self._obj.loc[:, cols]
-        return self._attach_meta(out, narrow=True)
+        return self._attach_meta(out)
 
-    @numeric.setter
-    def numeric(self, updated: Union[pd.DataFrame, pd.Series]) -> None:
+    @numerical.setter
+    def numerical(self, updated: Union[pd.DataFrame, pd.Series]) -> None:
         self.schema.prune_missing(self._obj.columns)
         cols = self.schema.columns(ColumnRole.NUMERICAL)
         self._assign_block(updated, rows=None, cols=cols)
 
     @property
     def categorical(self) -> pd.DataFrame:
+        """Categorical columns view."""
         self.schema.prune_missing(self._obj.columns)
         cols = self.schema.columns(ColumnRole.CATEGORICAL)
         out = self._obj.loc[:, cols]
-        return self._attach_meta(out, narrow=True)
+        return self._attach_meta(out)
 
     @categorical.setter
     def categorical(self, updated: Union[pd.DataFrame, pd.Series]) -> None:
@@ -129,7 +136,7 @@ class TabAccessor:
         """Return dataframe slice for a split."""
         idx = self.splits.indices_for(name, self._obj)
         out = self._obj.iloc[idx]
-        return self._attach_meta(out, narrow=True)
+        return self._attach_meta(out)
 
     @property
     def train(self) -> pd.DataFrame:
@@ -158,6 +165,7 @@ class TabAccessor:
         idx = self.splits.indices_for(SplitName.TEST.value, self._obj)
         self._assign_block(updated, rows=idx, cols=None)
 
+    # @time_profiler
     def _assign_block(
             self,
             updated: Union[pd.DataFrame, pd.Series],
@@ -168,18 +176,36 @@ class TabAccessor:
         df = self._obj
         upd = updated.to_frame() if isinstance(updated, pd.Series) else updated
 
-        target_index = df.index if rows is None else df.iloc[rows].index
-        common_index = target_index.intersection(upd.index)
-        if len(common_index) == 0:
-            raise ValueError(
-                "No overlapping rows between destination and updated (index misaligned)."
-            )
+        target_index = df.index if rows is None else df.index[rows]
+        target_cols = df.columns if cols is None else pd.Index(cols)
 
-        if cols is None:
-            common_cols = df.columns.intersection(upd.columns)
-        else:
-            common_cols = pd.Index(cols).intersection(upd.columns)
-        if len(common_cols) == 0:
+        common_index = target_index.intersection(upd.index)
+        if not len(common_index):
+            raise ValueError("No overlapping rows between destination and updated (index misaligned).")
+
+        common_cols = target_cols.intersection(upd.columns)
+        if not len(common_cols):
             raise ValueError("No overlapping columns between destination and updated.")
 
-        df.loc[common_index, common_cols] = upd.loc[common_index, common_cols]
+        if rows is None and common_index.equals(df.index):
+            # full replacement, keep dtypes
+            df[common_cols] = upd[common_cols]
+        else:
+            aligned = upd.reindex(index=common_index, columns=common_cols)
+            df.loc[common_index, common_cols] = aligned
+
+
+def reattach_meta(src: pd.DataFrame, out: pd.DataFrame) -> pd.DataFrame:
+    """Copy _schema (pruned) and _splits from src to out."""
+    if not isinstance(src, pd.DataFrame) or not isinstance(out, pd.DataFrame):
+        raise ValueError("Both arguments must be pandas DataFrames.")
+
+    schema = src.attrs.get("_schema")
+    splits = src.attrs.get("_splits")
+
+    if schema is not None:
+        out.attrs["_schema"] = schema.clone_pruned(out.columns)
+    if splits is not None:
+        out.attrs["_splits"] = splits
+
+    return out
