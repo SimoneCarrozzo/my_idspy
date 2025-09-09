@@ -57,7 +57,7 @@ def main():
             # DownsampleToMinority(class_col=schema.columns(ColumnRole.TARGET)[0]),
             StratifiedSplit(class_col=schema.columns(ColumnRole.TARGET)[0]),
             fitted_pipeline,
-            SaveSplits(path="resources/data/dataset_v2/processed", fmt="csv"),
+            SaveSplits(path="resources/data/processed/cic_2018_v2", fmt="csv"),
         ],
         bus=bus,
         name="main_pipeline",

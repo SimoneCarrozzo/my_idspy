@@ -31,7 +31,7 @@ class FrequencyMap(FitAwareStep):
         super().__init__(
             name=name or "frequency_map",
             requires=[self.source],
-            provides=[self.target],
+            provides=[self.target, "mapping.categorical"],
         )
 
     def fit_impl(self, state: State) -> None:
@@ -67,6 +67,7 @@ class FrequencyMap(FitAwareStep):
             out[col] = mapped
 
         state[self.target] = reattach_meta(obj, out)
+        state["mapping.categorical"] = self.cat_types
 
 
 class LabelMap(FitAwareStep):
@@ -89,7 +90,7 @@ class LabelMap(FitAwareStep):
         super().__init__(
             name=name or "target_map",
             requires=[self.source],
-            provides=[self.target],
+            provides=[self.target, "mapping.target"],
         )
 
     def fit_impl(self, state: State) -> None:
@@ -140,3 +141,4 @@ class LabelMap(FitAwareStep):
         obj[f"original_{tgt_col}"] = prev
         obj.tab.target = tgt
         state[self.target] = obj
+        state["mapping.target"] = self.cat_types

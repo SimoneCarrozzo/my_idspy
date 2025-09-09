@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 
@@ -19,9 +21,9 @@ class StandardScale(FitAwareStep):
         self.source = source
         self.target = target or source
 
-        self._scale: pd.Series | None = None
-        self._means_s: pd.Series | None = None
-        self._stds_s: pd.Series | None = None
+        self._scale: Optional[pd.Series] = None
+        self._means_s: Optional[pd.Series] = None
+        self._stds_s: Optional[pd.Series] = None
 
         super().__init__(
             name=name or "standard_scale",
@@ -87,8 +89,8 @@ class MinMaxScale(FitAwareStep):
         self.source = source
         self.target = target or source
 
-        self._min: pd.Series | None = None
-        self._max: pd.Series | None = None
+        self._min: Optional[pd.Series] = None
+        self._max: Optional[pd.Series] = None
 
         super().__init__(
             name=name or "min_max_scale",
