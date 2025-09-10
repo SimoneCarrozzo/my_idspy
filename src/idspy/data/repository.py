@@ -39,7 +39,7 @@ class DataFrameRepository:
     @classmethod
     def _get_metadata_path(cls, file_path: Path) -> Path:
         """Get metadata file path for a given data file."""
-        return file_path.with_suffix(file_path.suffix + ".meta")
+        return file_path.with_suffix(".meta")
 
     @classmethod
     def _resolve_path_and_format(
