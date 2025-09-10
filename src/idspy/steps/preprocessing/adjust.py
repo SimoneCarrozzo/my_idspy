@@ -11,10 +11,10 @@ class DropNulls(Step):
     """Drop all rows that contain null values, including NaN and ±inf."""
 
     def __init__(
-            self,
-            source: str = "data.root",
-            target: str | None = None,
-            name: str | None = None,
+        self,
+        source: str = "data.root",
+        target: str | None = None,
+        name: str | None = None,
     ) -> None:
         self.source = source
         self.target = target or source
@@ -37,11 +37,11 @@ class Filter(Step):
     """Filter rows using a pandas query string."""
 
     def __init__(
-            self,
-            query: str,
-            source: str = "data.root",
-            target: str | None = None,
-            name: str | None = None,
+        self,
+        query: str,
+        source: str = "data.root",
+        target: str | None = None,
+        name: str | None = None,
     ) -> None:
         self.query = query
         self.source = source
@@ -58,18 +58,17 @@ class Filter(Step):
         validate_instance(obj, pd.DataFrame, self.name)
 
         out = obj.query(self.query)
-        out = reattach_meta(obj, out)
-        state[self.target] = out
+        state[self.target] = reattach_meta(obj, out)
 
 
 class Log1p(Step):
     """Apply np.log1p to numerical columns."""
 
     def __init__(
-            self,
-            source: str = "data.root",
-            target: str | None = None,
-            name: str | None = None,
+        self,
+        source: str = "data.root",
+        target: str | None = None,
+        name: str | None = None,
     ) -> None:
         self.source = source
         self.target = target or source
@@ -83,7 +82,6 @@ class Log1p(Step):
     def run(self, state: State) -> None:
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
-
         validate_schema(obj, self.name)
 
         obj.tab.numerical = np.log1p(obj.tab.numerical)

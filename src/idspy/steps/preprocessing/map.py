@@ -15,12 +15,12 @@ class FrequencyMap(FitAwareStep):
     """Map categorical columns to frequency-rank codes."""
 
     def __init__(
-            self,
-            max_levels: Optional[int] = None,
-            default: int = 0,
-            source: str = "data.root",
-            target: Optional[str] = None,
-            name: Optional[str] = None,
+        self,
+        max_levels: Optional[int] = None,
+        default: int = 0,
+        source: str = "data.root",
+        target: Optional[str] = None,
+        name: Optional[str] = None,
     ) -> None:
         self.max_levels = max_levels
         self.default = default
@@ -43,13 +43,17 @@ class FrequencyMap(FitAwareStep):
         train_df = obj.tab.train
         self.cat_types.clear()
 
-        for col in train_df.tab.categorical.columns:
+        cat_cols = train_df.tab.categorical.columns
+        for col in cat_cols:
             vc = train_df[col].value_counts(dropna=False)
-            cats = (
-                vc.index.tolist()
-                if self.max_levels is None
-                else vc.nlargest(self.max_levels).index.tolist()
-            )
+            if vc.empty:
+                continue
+
+            if self.max_levels is None:
+                cats = vc.index.tolist()
+            else:
+                cats = vc.head(self.max_levels).index.tolist()
+
             self.cat_types[col] = CategoricalDtype(categories=cats, ordered=True)
 
     def run(self, state: State) -> None:
@@ -58,13 +62,21 @@ class FrequencyMap(FitAwareStep):
         validate_instance(obj, pd.DataFrame, self.name)
 
         out = obj.copy()
-        for col in obj.tab.categorical.columns:
+
+        # Early exit if no categorical mappings learned
+        if not self.cat_types:
+            state[self.target] = reattach_meta(obj, out)
+            state["mapping.categorical"] = self.cat_types
+            return
+
+        cat_cols = obj.tab.categorical.columns
+        for col in cat_cols:
             if col not in self.cat_types or col not in out.columns:
                 continue
+
             s = out[col].astype(self.cat_types[col])
-            codes = s.cat.codes.to_numpy()  # -1 for unknowns
-            mapped = np.where(codes != -1, codes + 1, self.default).astype("int32")
-            out[col] = mapped
+            codes = s.cat.codes
+            out[col] = np.where(codes != -1, codes + 1, self.default).astype("int32")
 
         state[self.target] = reattach_meta(obj, out)
         state["mapping.categorical"] = self.cat_types
@@ -74,12 +86,12 @@ class LabelMap(FitAwareStep):
     """Encode `target`: binary with `benign_tag`, else ordinal categories."""
 
     def __init__(
-            self,
-            benign_tag: Optional[str] = None,
-            default: int = -1,
-            source: str = "data.root",
-            target: Optional[str] = None,
-            name: Optional[str] = None,
+        self,
+        benign_tag: Optional[str] = None,
+        default: int = -1,
+        source: str = "data.root",
+        target: Optional[str] = None,
+        name: Optional[str] = None,
     ) -> None:
         self.benign_tag = benign_tag
         self.default = default
@@ -99,16 +111,20 @@ class LabelMap(FitAwareStep):
         validate_instance(obj, pd.DataFrame, self.name)
 
         validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
-        train_df = obj.tab.train
+
+        # Early exit for binary case
         if self.benign_tag is not None:
             self.cat_types = None
             return
 
+        train_df = obj.tab.train
         tgt_cols = train_df.tab.target.columns
         if len(tgt_cols) != 1:
-            raise ValueError(f"Expected exactly 1 target column, found {len(tgt_cols)}: {tgt_cols}")
-        tgt_col = tgt_cols[0]
+            raise ValueError(
+                f"Expected exactly 1 target column, found {len(tgt_cols)}: {tgt_cols}"
+            )
 
+        tgt_col = tgt_cols[0]
         vc = train_df[tgt_col].value_counts(dropna=False)
         self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
 
@@ -119,19 +135,21 @@ class LabelMap(FitAwareStep):
 
         tgt_cols = obj.tab.target.columns
         if len(tgt_cols) != 1:
-            raise ValueError(f"Expected exactly 1 target column, found {len(tgt_cols)}: {tgt_cols}")
+            raise ValueError(
+                f"Expected exactly 1 target column, found {len(tgt_cols)}: {tgt_cols}"
+            )
         tgt_col = tgt_cols[0]
-
         prev = obj[tgt_col].copy()
 
         if self.benign_tag is not None:
-            tgt = prev.replace({self.benign_tag: 0}).where(lambda x: x == 0, 1).astype("int32")
+            tgt = (prev == self.benign_tag).astype("int32")
+            tgt = tgt.where(tgt == 0, 1)
         else:
             if self.cat_types is None:
                 raise RuntimeError("LabelMap was not fitted with category types.")
-            s = prev.astype(self.cat_types)
 
-            codes = s.cat.codes.to_numpy()  # -1 for unknowns
+            s = prev.astype(self.cat_types)
+            codes = s.cat.codes
             tgt = pd.Series(
                 np.where(codes != -1, codes + 1, self.default).astype("int32"),
                 index=s.index,

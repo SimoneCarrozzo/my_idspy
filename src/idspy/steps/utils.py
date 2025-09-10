@@ -1,10 +1,12 @@
-from typing import Any, Tuple, Type
+from typing import Any, Tuple, Type, Optional, List
+
+import pandas as pd
 
 
 def validate_instance(
-        obj: Any,
-        types: Type[Any] | Tuple[Type[Any], ...],
-        step_name: str,
+    obj: Any,
+    types: Type[Any] | Tuple[Type[Any], ...],
+    step_name: str,
 ) -> None:
     """
     Ensure `obj` is an instance or subclass of `types`.
@@ -22,20 +24,18 @@ def validate_instance(
 
     if not all(isinstance(t, type) for t in types_tuple):
         bad = [repr(t) for t in types_tuple if not isinstance(t, type)]
-        raise TypeError(f"{step_name}: all entries in 'types' must be types, got {bad}.")
+        raise TypeError(
+            f"{step_name}: all entries in 'types' must be types, got {bad}."
+        )
 
     is_valid = isinstance(obj, types_tuple) or (
-            isinstance(obj, type) and issubclass(obj, types_tuple)
+        isinstance(obj, type) and issubclass(obj, types_tuple)
     )
 
     if not is_valid:
         expected = "/".join(t.__name__ for t in types_tuple)
         actual = obj.__name__ if isinstance(obj, type) else type(obj).__name__
         raise TypeError(f"{step_name}: expected {expected}, found {actual}.")
-
-
-import pandas as pd
-from typing import Optional, List
 
 
 def validate_schema(df: pd.DataFrame, source_name: str) -> None:
@@ -45,9 +45,7 @@ def validate_schema(df: pd.DataFrame, source_name: str) -> None:
 
 
 def validate_split(
-        df: pd.DataFrame,
-        source_name: str,
-        split_names: Optional[List[str]] = None
+    df: pd.DataFrame, source_name: str, split_names: Optional[List[str]] = None
 ) -> None:
     """Ensure dataframe has splits and optionally check specific split names."""
     if "_splits" not in df.attrs:
@@ -58,13 +56,13 @@ def validate_split(
             try:
                 getattr(df.tab, split_name)
             except KeyError as e:
-                raise ValueError(f"{source_name} must have a '{split_name}' split defined.") from e
+                raise ValueError(
+                    f"{source_name} must have a '{split_name}' split defined."
+                ) from e
 
 
 def validate_schema_and_split(
-        df: pd.DataFrame,
-        source_name: str,
-        split_names: Optional[List[str]] = None
+    df: pd.DataFrame, source_name: str, split_names: Optional[List[str]] = None
 ) -> None:
     """Ensure dataframe has schema and required splits."""
     validate_schema(df, source_name)

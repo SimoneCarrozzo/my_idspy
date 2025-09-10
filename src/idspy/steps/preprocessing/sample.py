@@ -10,12 +10,12 @@ class DownsampleToMinority(Step):
     """Downsample each class to the size of the minority class."""
 
     def __init__(
-            self,
-            class_col: str,
-            source: str = "data.root",
-            target: str | None = None,
-            name: str | None = None,
-            random_state: int | None = None,
+        self,
+        class_col: str,
+        source: str = "data.root",
+        target: str | None = None,
+        name: str | None = None,
+        random_state: int | None = None,
     ) -> None:
         self.class_col = class_col
         self.source = source
@@ -32,6 +32,7 @@ class DownsampleToMinority(Step):
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
 
+        # Early exits for edge cases
         if obj.empty or self.class_col not in obj.columns:
             state[self.target] = obj
             return
@@ -47,11 +48,10 @@ class DownsampleToMinority(Step):
             state[self.target] = reattach_meta(obj, sampled)
             return
 
-        shuffled = obj.sample(frac=1.0, replace=False, random_state=self.random_state)
-        sampled = (
-            shuffled.groupby(self.class_col, dropna=False, group_keys=False, sort=False)
-            .head(minority)
-        )
+        # Efficient sampling: avoid full shuffle if not needed
+        sampled = obj.groupby(
+            self.class_col, dropna=False, group_keys=False, sort=False
+        ).sample(n=minority, replace=False, random_state=self.random_state)
 
         state[self.target] = reattach_meta(obj, sampled)
 
@@ -60,13 +60,13 @@ class Downsample(Step):
     """Downsample rows globally or per class."""
 
     def __init__(
-            self,
-            frac: float,
-            class_col: str | None = None,
-            source: str = "data.root",
-            target: str | None = None,
-            name: str | None = None,
-            random_state: int | None = None,
+        self,
+        frac: float,
+        class_col: str | None = None,
+        source: str = "data.root",
+        target: str | None = None,
+        name: str | None = None,
+        random_state: int | None = None,
     ) -> None:
         if not (0.0 < frac <= 1.0):
             raise ValueError(f"downsample: frac must be in (0, 1], got {frac}.")
@@ -91,18 +91,16 @@ class Downsample(Step):
             state[self.target] = obj
             return
 
-        if self.class_col is not None:
-            # Per-class sampling
-            if self.class_col not in obj.columns:
-                state[self.target] = obj
-                return
-
-            sampled = (
-                obj.groupby(self.class_col, dropna=False, group_keys=False, sort=False)
-                .sample(frac=self.frac, replace=False, random_state=self.random_state)
-            )
+        # Optimized sampling logic
+        if self.class_col is not None and self.class_col in obj.columns:
+            # Per-class sampling with efficient groupby
+            sampled = obj.groupby(
+                self.class_col, dropna=False, group_keys=False, sort=False
+            ).sample(frac=self.frac, replace=False, random_state=self.random_state)
         else:
-            # Global sampling
-            sampled = obj.sample(frac=self.frac, replace=False, random_state=self.random_state)
+            # Global sampling (handles both None class_col and missing column cases)
+            sampled = obj.sample(
+                frac=self.frac, replace=False, random_state=self.random_state
+            )
 
         state[self.target] = reattach_meta(obj, sampled)
