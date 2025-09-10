@@ -20,14 +20,14 @@ class RandomSplit(Step):
     """Random split into train/val/test."""
 
     def __init__(
-            self,
-            source: str = "data.root",
-            target: str | None = None,
-            train_size: float = 0.7,
-            val_size: float = 0.15,
-            test_size: float = 0.15,
-            random_state: int | None = None,
-            name: str | None = None,
+        self,
+        source: str = "data.root",
+        target: str | None = None,
+        train_size: float = 0.7,
+        val_size: float = 0.15,
+        test_size: float = 0.15,
+        random_state: int | None = None,
+        name: str | None = None,
     ) -> None:
         self.source = source
         self.target = target or source
@@ -47,8 +47,6 @@ class RandomSplit(Step):
     def run(self, state: State) -> None:
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
-
-        validate_split(obj, self.name)
 
         if obj.empty:
             state["mapping.split"] = {}
@@ -72,15 +70,15 @@ class StratifiedSplit(Step):
     """Stratified split into train/val/test."""
 
     def __init__(
-            self,
-            source: str = "data.root",
-            target: str | None = None,
-            train_size: float = 0.7,
-            val_size: float = 0.15,
-            test_size: float = 0.15,
-            class_col: str | None = None,
-            random_state: int | None = None,
-            name: str | None = None,
+        self,
+        source: str = "data.root",
+        target: str | None = None,
+        train_size: float = 0.7,
+        val_size: float = 0.15,
+        test_size: float = 0.15,
+        class_col: str | None = None,
+        random_state: int | None = None,
+        name: str | None = None,
     ) -> None:
         self.source = source
         self.target = target or source
@@ -101,8 +99,6 @@ class StratifiedSplit(Step):
     def run(self, state: State) -> None:
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
-
-        validate_split(obj, self.name)
 
         if obj.empty:
             state["mapping.split"] = {}

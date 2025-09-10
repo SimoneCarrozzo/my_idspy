@@ -18,18 +18,19 @@ class SplitName(str, Enum):
 @dataclass(slots=True)
 class Split:
     """Hold train/val/test split definitions by index labels."""
+
     mapping: Dict[str, pd.Index] = field(default_factory=dict)
 
     def set_from_labels(
-            self, name_to_labels: Dict[Union[str, "SplitName"], Iterable]
+        self, name_to_labels: Dict[Union[str, "SplitName"], Iterable]
     ) -> None:
         """Define splits directly from index labels."""
         self.mapping = {str(k): pd.Index(v) for k, v in name_to_labels.items()}
 
     def set_from_positions(
-            self,
-            name_to_pos: Dict[Union[str, "SplitName"], Iterable[int]],
-            index_labels: pd.Index,
+        self,
+        name_to_pos: Dict[Union[str, "SplitName"], Iterable[int]],
+        index_labels: pd.Index,
     ) -> None:
         """Define splits from integer positions, converted to labels."""
         self.mapping = {
@@ -37,43 +38,25 @@ class Split:
             for k, v in name_to_pos.items()
         }
 
-    def indices_for(
-            self, name: Union[str, "SplitName"], df: pd.DataFrame
-    ) -> np.ndarray:
-        """Return integer positions for a split, robust to reordering."""
-        key = str(name)
-        if key not in self.mapping:
-            raise KeyError(f"Split '{key}' is not defined.")
-        saved = self.mapping[key]
-        valid = pd.Index(saved).intersection(df.index)
-        return df.index.get_indexer_for(valid)
-
     def clone(self) -> "Split":
         """Return a deep copy of this Split (with independent Index objects)."""
-        return Split(
-            mapping={k: v.copy() for k, v in self.mapping.items()}
-        )
+        return Split(mapping={k: v.copy() for k, v in self.mapping.items()})
 
 
-def _validate_split_sizes(
-        train_size: float, val_size: float, test_size: float
-) -> None:
-    for nm, v in (("train_size", train_size), ("val_size", val_size), ("test_size", test_size)):
+def _validate_split_sizes(train_size: float, val_size: float, test_size: float) -> None:
+    for nm, v in (
+        ("train_size", train_size),
+        ("val_size", val_size),
+        ("test_size", test_size),
+    ):
         if not (0.0 - _EPS <= v <= 1.0 + _EPS):
             raise ValueError(f"{nm} must be in [0, 1]; got {v}")
 
     total = train_size + val_size + test_size
     if not np.isclose(total, 1.0, atol=_EPS):
-        raise ValueError(f"train_size + val_size + test_size must sum to 1.0; got {total}")
-
-
-def _ensure_index(x: Sequence, like: pd.Index) -> pd.Index:
-    """Return a pd.Index with the same dtype as `like` if possible."""
-    idx = pd.Index(x)
-    try:
-        return idx.astype(like.dtype, copy=False)
-    except (TypeError, ValueError, RuntimeError):
-        return idx
+        raise ValueError(
+            f"train_size + val_size + test_size must sum to 1.0; got {total}"
+        )
 
 
 def _empty_like_index(like: pd.Index) -> pd.Index:
@@ -81,13 +64,13 @@ def _empty_like_index(like: pd.Index) -> pd.Index:
 
 
 def _split_indices(
-        df: pd.DataFrame,
-        train_size: float,
-        val_size: float,
-        test_size: float,
-        target: Optional[pd.Series] = None,
-        random_state: Optional[int] = None,
-        shuffle: bool = True,
+    df: pd.DataFrame,
+    train_size: float,
+    val_size: float,
+    test_size: float,
+    target: Optional[pd.Series] = None,
+    random_state: Optional[int] = None,
+    shuffle: bool = True,
 ) -> Dict[str, pd.Index]:
     """
     Core splitter: if `source` is provided, uses stratification; otherwise random split.
@@ -107,9 +90,6 @@ def _split_indices(
         random_state=random_state,
         shuffle=shuffle,
     )
-
-    train_idx = _ensure_index(train_idx, df.index)
-    remaining_idx = _ensure_index(remaining_idx, df.index)
 
     # Distribute remaining between val/test
     rel = val_size / (val_size + test_size) if (val_size + test_size) > 0 else 0.0
@@ -139,19 +119,19 @@ def _split_indices(
     )
 
     return {
-        SplitName.TRAIN.value: _ensure_index(train_idx, df.index),
-        SplitName.VAL.value: _ensure_index(val_idx, df.index),
-        SplitName.TEST.value: _ensure_index(test_idx, df.index),
+        SplitName.TRAIN.value: train_idx,
+        SplitName.VAL.value: val_idx,
+        SplitName.TEST.value: test_idx,
     }
 
 
 def random_split(
-        df: pd.DataFrame,
-        train_size: float = 0.8,
-        val_size: float = 0.1,
-        test_size: float = 0.1,
-        random_state: Optional[int] = None,
-        shuffle: bool = True,
+    df: pd.DataFrame,
+    train_size: float = 0.8,
+    val_size: float = 0.1,
+    test_size: float = 0.1,
+    random_state: Optional[int] = None,
+    shuffle: bool = True,
 ) -> Dict[str, pd.Index]:
     """Randomly split a DataFrame index into a dict of (train/val/test) indices."""
     return _split_indices(
@@ -166,13 +146,13 @@ def random_split(
 
 
 def stratified_split(
-        df: pd.DataFrame,
-        target: Union[str, pd.Series],
-        train_size: float = 0.8,
-        val_size: float = 0.1,
-        test_size: float = 0.1,
-        random_state: Optional[int] = None,
-        shuffle: bool = True,
+    df: pd.DataFrame,
+    target: Union[str, pd.Series],
+    train_size: float = 0.8,
+    val_size: float = 0.1,
+    test_size: float = 0.1,
+    random_state: Optional[int] = None,
+    shuffle: bool = True,
 ) -> Dict[str, pd.Index]:
     """Stratified split of a DataFrame index into a dict of (train/val/test) indices."""
     if isinstance(target, str):

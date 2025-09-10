@@ -1,134 +1,172 @@
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Tuple, Union, Callable, cast
+import pickle
+from typing import Any, Callable, Dict, Literal, Optional, Tuple, Union
 
 import pandas as pd
 
-from src.idspy.data.schema import Schema
+from .schema import Schema
+from .tab_accessor import TabAccessor
 
 PathLike = Union[str, Path]
-Fmt = Literal["parquet", "csv", "pickle"]
+Format = Literal["parquet", "csv", "pickle"]
 
 
 class DataFrameRepository:
-    """Load/save pandas DataFrames with format inferred from path/name/fmt."""
+    """Load/save pandas DataFrames with format inferred from path."""
 
-    _SAVE_FUNCS: Dict[Fmt, Callable[[pd.DataFrame, Path, Dict[str, Any]], None]] = {
+    FORMATS = frozenset(["parquet", "csv", "pickle"])
+
+    SAVE_FUNCS: Dict[Format, Callable[[pd.DataFrame, Path, Dict[str, Any]], None]] = {
         "parquet": lambda df, fp, kw: df.to_parquet(fp, **kw),
         "csv": lambda df, fp, kw: df.to_csv(fp, index=False, **kw),
         "pickle": lambda df, fp, kw: df.to_pickle(fp, **kw),
     }
 
-    _LOAD_FUNCS: Dict[Fmt, Callable[[Path, Dict[str, Any]], pd.DataFrame]] = {
+    LOAD_FUNCS: Dict[Format, Callable[[Path, Dict[str, Any]], pd.DataFrame]] = {
         "parquet": lambda fp, kw: pd.read_parquet(fp, **kw),
         "csv": lambda fp, kw: pd.read_csv(fp, **kw),
         "pickle": lambda fp, kw: pd.read_pickle(fp, **kw),
     }
 
-    @staticmethod
-    def resolve_path_and_format(
-            base_path: PathLike,
-            name: Optional[str] = None,
-            fmt: Optional[Fmt] = None,
-    ) -> Tuple[Path, Fmt]:
-        """
-        Infer final file path and format from base_path/name/fmt.
+    @classmethod
+    def _parse_format(cls, suffix: str) -> Format:
+        """Convert file suffix to format."""
+        fmt = suffix.lstrip(".").lower()
+        if fmt not in cls.FORMATS:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return fmt
 
-        - If base_path has a suffix → that suffix sets the format.
-        - Else (directory-like):
-          • If name has a suffix → use it.
-          • Else if fmt is given → use it.
-          • Else → error.
+    @classmethod
+    def _get_metadata_path(cls, file_path: Path) -> Path:
+        """Get metadata file path for a given data file."""
+        return file_path.with_suffix(file_path.suffix + ".meta")
 
-        Ensures parent directories exist.
-        """
-        bp = Path(base_path)
+    @classmethod
+    def _resolve_path_and_format(
+        cls,
+        base_path: PathLike,
+        name: Optional[str] = None,
+        fmt: Optional[Format] = None,
+    ) -> Tuple[Path, Format]:
+        """Resolve final file path and format from inputs."""
+        base = Path(base_path)
 
-        def _suffix_to_fmt(suffix: str) -> Fmt:
-            suf = suffix.lstrip(".").lower()
-            if suf not in ("parquet", "csv", "pickle"):
-                raise ValueError(f"Unsupported format: {suf!r}")
-            return cast(Fmt, suf)
-
-        # Case 1: base_path has an explicit suffix => treat as file-like; its suffix wins
-        if bp.suffix:
-            out_fmt = _suffix_to_fmt(bp.suffix)
-            if name is not None:
-                # Keep base's directory and suffix; replace the stem with provided name's stem
-                name_stem = Path(name).stem
-                final = bp.with_name(name_stem + bp.suffix)
+        # File path with extension
+        if base.suffix:
+            resolved_fmt = cls._parse_format(base.suffix)
+            if name:
+                final_path = base.with_name(Path(name).stem + base.suffix)
             else:
-                final = bp
+                final_path = base
+            return final_path, resolved_fmt
 
-        # Case 2: base_path is directory-like (exists as dir OR has no suffix)
+        # Directory path
+        if not name:
+            raise ValueError("Name required when base_path is a directory")
+
+        name_path = Path(name)
+
+        if name_path.suffix:
+            resolved_fmt = cls._parse_format(name_path.suffix)
+            final_path = base / name_path.name
+        elif fmt:
+            resolved_fmt = fmt
+            final_path = base / f"{name_path.name}.{fmt}"
         else:
-            base_dir = bp if (bp.exists() and bp.is_dir()) or not bp.suffix else bp.parent
+            raise ValueError("Cannot infer format: provide name with suffix or fmt")
 
-            if name is None:
-                raise ValueError(
-                    "No file name provided: when base_path is a directory, 'name' is required."
-                )
+        return final_path, resolved_fmt
 
-            name_path = Path(name)
-
-            if name_path.suffix:
-                out_fmt = _suffix_to_fmt(name_path.suffix)
-                final = base_dir / name_path.name
-            elif fmt is not None:
-                out_fmt = fmt
-                final = base_dir / f"{name_path.name}.{str(fmt)}"
-            else:
-                raise ValueError(
-                    "Cannot infer format: provide 'name' with a suffix or pass 'fmt'."
-                )
-
-        # Ensure parent directories exist
-        final.parent.mkdir(parents=True, exist_ok=True)
-
-        return final, out_fmt
-
-    @staticmethod
+    @classmethod
     def save(
-            df: pd.DataFrame,
-            base_path: PathLike,
-            name: Optional[str] = None,
-            fmt: Optional[Fmt] = None,
-            **kwargs: Any,
+        cls,
+        df: pd.DataFrame,
+        base_path: PathLike,
+        name: Optional[str] = None,
+        fmt: Optional[Format] = None,
+        save_meta: bool = True,
+        **kwargs: Any,
     ) -> Path:
-        """Save DataFrame to disk and return the final file path."""
-        file_path, resolved_fmt = DataFrameRepository.resolve_path_and_format(base_path, name, fmt)
+        """Save DataFrame and return file path.
 
-        saver = DataFrameRepository._SAVE_FUNCS.get(resolved_fmt)
-        if not saver:
-            raise ValueError(f"Unsupported format: {resolved_fmt}")
-        saver(df, file_path, kwargs)
+        Note:
+            Metadata is saved to a separate .meta file alongside the data file
+            and contains schema and splits information from df.attrs.
+        """
+        file_path, resolved_fmt = cls._resolve_path_and_format(base_path, name, fmt)
+
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if save_meta:
+            meta = {
+                "schema": df.attrs.get("_schema"),
+                "splits": df.attrs.get("_splits"),
+            }
+            # Save metadata to a separate file with .meta extension
+            meta_path = cls._get_metadata_path(file_path)
+
+            with open(meta_path, "wb") as f:
+                pickle.dump(meta, f)
+
+        # metadata will be stored separately if needed
+        df.attrs.clear()
+
+        save_func = cls.SAVE_FUNCS[resolved_fmt]
+        save_func(df, file_path, kwargs)
+
         return file_path
 
-    @staticmethod
+    @classmethod
     def load(
-            base_path: PathLike,
-            name: Optional[str] = None,
-            fmt: Optional[Fmt] = None,
-            schema: Optional[Schema] = None,
-            **kwargs: Any,
+        cls,
+        base_path: PathLike,
+        name: Optional[str] = None,
+        fmt: Optional[Format] = None,
+        schema: Optional[Schema] = None,
+        load_meta: bool = True,
+        **kwargs: Any,
     ) -> pd.DataFrame:
-        """Load DataFrame; optionally attach schema if provided."""
-        file_path, resolved_fmt = DataFrameRepository.resolve_path_and_format(base_path, name, fmt)
+        """Load DataFrame with optional schema.
+
+        Note:
+            Metadata is loaded from .meta file if it exists and load_meta=True.
+            If no metadata file exists but schema is provided, schema is applied.
+        """
+        file_path, resolved_fmt = cls._resolve_path_and_format(base_path, name, fmt)
 
         if not file_path.exists():
             raise FileNotFoundError(str(file_path))
 
-        loader = DataFrameRepository._LOAD_FUNCS.get(resolved_fmt)
-        if not loader:
-            raise ValueError(f"Unsupported format: {resolved_fmt}")
-        df = loader(file_path, kwargs)
+        load_func = cls.LOAD_FUNCS[resolved_fmt]
+        df = load_func(file_path, kwargs)
 
-        if schema is not None:
-            try:
-                df.tab.set_schema(schema)
-                df.tab.numerical = df.tab.numerical.astype("float64")
-                df.tab.categorical = df.tab.categorical.astype("string")
-                df.tab.target = df.tab.target.astype("string")
-            except AttributeError:
-                pass
+        if load_meta:
+            # Load metadata from separate .meta file
+            meta_path = cls._get_metadata_path(file_path)
+            if meta_path.exists():
+                try:
+                    with open(meta_path, "rb") as f:
+                        meta = pickle.load(f)
+                    if "schema" in meta and meta["schema"] is not None:
+                        df.attrs["_schema"] = meta["schema"]
+                    if "splits" in meta and meta["splits"] is not None:
+                        df.attrs["_splits"] = meta["splits"]
+                except Exception:
+                    # If metadata loading fails, continue without metadata
+                    pass
+        if schema:
+            df.attrs["_schema"] = schema
 
         return df
+
+    @classmethod
+    def has_metadata(
+        cls,
+        base_path: PathLike,
+        name: Optional[str] = None,
+        fmt: Optional[Format] = None,
+    ) -> bool:
+        """Check if metadata file exists for a dataset."""
+        file_path, _ = cls._resolve_path_and_format(base_path, name, fmt)
+        meta_path = cls._get_metadata_path(file_path)
+        return meta_path.exists()

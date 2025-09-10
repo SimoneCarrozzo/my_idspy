@@ -1,6 +1,7 @@
 # Custom skipped files
 resources/
 .idea/
+prof.out
 
 ### macOS ###
 # General
