@@ -99,6 +99,7 @@ def main():
             LoadData(
                 path="resources/data/dataset_v2/cic_2018_v2.csv",
                 schema=schema,
+                nrows=1000000,
             ),
             DropNulls(),
             # DownsampleToMinority(class_col=schema.columns(ColumnRole.TARGET)[0]),

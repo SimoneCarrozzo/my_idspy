@@ -1,6 +1,17 @@
-import types
+from collections import defaultdict
 from enum import Enum
-from typing import Sequence, Optional, Iterable, List, Any, Callable, Dict, Tuple, Union, Mapping
+from typing import (
+    Sequence,
+    Optional,
+    Iterable,
+    List,
+    Any,
+    Callable,
+    Dict,
+    Tuple,
+    Union,
+    Mapping,
+)
 
 from .state import State
 from .step import Step, FitAwareStep
@@ -10,6 +21,7 @@ from ..events.events import Event
 
 class PipelineEvent(str, Enum):
     """Pipeline lifecycle and step events."""
+
     PIPELINE_START = "pipeline_start"
     PIPELINE_END = "pipeline_end"
     BEFORE_STEP = "before_step"  # args: (step, state, index=int)
@@ -21,6 +33,40 @@ EventKey = Union[str, PipelineEvent]
 HookFunc = Callable[..., None]
 
 
+class HookRegistry:
+    """Efficient hook registry with lazy sorting and caching."""
+
+    def __init__(self):
+        self._hooks: Dict[str, List[Tuple[int, HookFunc]]] = defaultdict(list)
+        self._sorted_cache: Dict[str, List[HookFunc]] = {}
+
+    def add(self, event: str, func: HookFunc, priority: int = 0) -> None:
+        """Add a hook with priority."""
+        self._hooks[event].append((priority, func))
+        # Invalidate cache for this event
+        self._sorted_cache.pop(event, None)
+
+    def remove(self, event: str, func: HookFunc) -> None:
+        """Remove a hook."""
+        if event in self._hooks:
+            self._hooks[event] = [
+                (p, f) for p, f in self._hooks[event] if f is not func
+            ]
+            if not self._hooks[event]:
+                del self._hooks[event]
+            self._sorted_cache.pop(event, None)
+
+    def get_hooks(self, event: str) -> List[HookFunc]:
+        """Get sorted hooks for event (cached)."""
+        if event not in self._sorted_cache:
+            hooks = self._hooks.get(event, [])
+            # Sort by priority (lower first) and cache result
+            self._sorted_cache[event] = [
+                func for _, func in sorted(hooks, key=lambda x: x[0])
+            ]
+        return self._sorted_cache[event]
+
+
 def _normalize_event_key(event: EventKey) -> str:
     return event.value if isinstance(event, PipelineEvent) else str(event)
 
@@ -28,63 +74,66 @@ def _normalize_event_key(event: EventKey) -> str:
 def hook(event: EventKey, *, priority: int = 0) -> Callable[[HookFunc], HookFunc]:
     """Decorator to mark a method as a hook for `event` with priority (lower runs first)."""
 
-    def deco(fn: HookFunc) -> HookFunc:
-        hooks = getattr(fn, "__hooks__", [])
-        hooks.append((_normalize_event_key(event), priority))
-        setattr(fn, "__hooks__", hooks)
-        return fn
+    def decorator(func: HookFunc) -> HookFunc:
+        # Store hook metadata directly on function
+        if not hasattr(func, "_hook_events"):
+            func._hook_events = []
+        func._hook_events.append((_normalize_event_key(event), priority))
+        return func
 
-    return deco
+    return decorator
 
 
 class Pipeline(Step):
     """Step that runs a sequence of sub-steps with hook support."""
 
     def __init__(
-            self,
-            steps: Sequence[Step],
-            name: Optional[str] = None,
-            requires: Optional[Iterable[str]] = None,
-            provides: Optional[Iterable[str]] = None,
+        self,
+        steps: Sequence[Step],
+        name: Optional[str] = None,
+        requires: Optional[Iterable[str]] = None,
+        provides: Optional[Iterable[str]] = None,
     ) -> None:
         super().__init__(name=name, requires=requires, provides=provides)
         self.steps: List[Step] = list(steps)
-        self._hooks: Dict[str, List[Tuple[int, HookFunc]]] = {}
-        self._bind_decorated_hooks()
+        self._hook_registry = HookRegistry()
+        self._register_decorated_hooks()
 
     # --- hooks registration ---
 
-    def _bind_decorated_hooks(self) -> None:
-        for cls in self.__class__.mro():
-            for _, fn in cls.__dict__.items():
-                if isinstance(fn, types.FunctionType) and hasattr(fn, "__hooks__"):
-                    bound = fn.__get__(self, self.__class__)
-                    for ev, prio in getattr(fn, "__hooks__", []):
-                        self._hooks.setdefault(ev, []).append((prio, bound))
-        for ev in self._hooks:
-            self._hooks[ev].sort(key=lambda t: t[0])
+    def _register_decorated_hooks(self) -> None:
+        """Efficiently register all decorated hooks from class hierarchy."""
+        # Use a set to avoid duplicate registration
+        seen_methods = set()
+
+        for cls in reversed(self.__class__.mro()):  # Start from base classes
+            for name, method in cls.__dict__.items():
+                if (
+                    name not in seen_methods
+                    and callable(method)
+                    and hasattr(method, "_hook_events")
+                ):
+
+                    bound_method = getattr(self, name)
+                    for event, priority in method._hook_events:
+                        self._hook_registry.add(event, bound_method, priority)
+                    seen_methods.add(name)
 
     def add_hook(self, event: EventKey, func: HookFunc, *, priority: int = 0) -> None:
         """Register a runtime hook."""
         key = _normalize_event_key(event)
-        self._hooks.setdefault(key, []).append((priority, func))
-        self._hooks[key].sort(key=lambda t: t[0])
+        self._hook_registry.add(key, func, priority)
 
     def remove_hook(self, event: EventKey, func: HookFunc) -> None:
-        """Remove a runtime hook (no-op if missing)."""
+        """Remove a runtime hook."""
         key = _normalize_event_key(event)
-        lst = self._hooks.get(key)
-        if not lst:
-            return
-        self._hooks[key] = [pair for pair in lst if pair[1] is not func]
-        if not self._hooks[key]:
-            del self._hooks[key]
+        self._hook_registry.remove(key, func)
 
     def _fire(self, event: EventKey, *args: Any, **kwargs: Any) -> None:
         """Invoke hooks for `event` in priority order."""
         key = _normalize_event_key(event)
-        for _, fn in list(self._hooks.get(key, ())):
-            fn(*args, **kwargs)
+        for hook_func in self._hook_registry.get_hooks(key):
+            hook_func(*args, **kwargs)
 
     # --- Step API ---
 
@@ -122,7 +171,9 @@ class Pipeline(Step):
 class ObservablePipeline(Pipeline):
     """Pipeline that publishes lifecycle events to an EventBus."""
 
-    def __init__(self, *args: Any, bus: Optional[EventBus] = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, bus: Optional[EventBus] = None, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.bus: EventBus = bus or EventBus()
 
@@ -135,11 +186,15 @@ class ObservablePipeline(Pipeline):
 
     @hook(PipelineEvent.PIPELINE_START)
     def start(self, state: State) -> None:
-        self.bus.publish(Event(PipelineEvent.PIPELINE_START, self.name, state=self._ctx(state)))
+        self.bus.publish(
+            Event(PipelineEvent.PIPELINE_START, self.name, state=self._ctx(state))
+        )
 
     @hook(PipelineEvent.PIPELINE_END)
     def end(self, state: State) -> None:
-        self.bus.publish(Event(PipelineEvent.PIPELINE_END, self.name, state=self._ctx(state)))
+        self.bus.publish(
+            Event(PipelineEvent.PIPELINE_END, self.name, state=self._ctx(state))
+        )
 
     @hook(PipelineEvent.BEFORE_STEP)
     def before_step(self, step: Step, state: State, *, index: int) -> None:
@@ -187,10 +242,10 @@ class FitAwarePipeline(Pipeline):
     """Pipeline that fits FitAwareStep sub-steps before running."""
 
     def __init__(
-            self,
-            *args: Any,
-            refit: bool = False,
-            **kwargs: Any,
+        self,
+        *args: Any,
+        refit: bool = False,
+        **kwargs: Any,
     ) -> None:
         """
         refit: if False, fit only steps not yet fitted; if True, always fit.
