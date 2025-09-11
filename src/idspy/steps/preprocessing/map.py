@@ -16,16 +16,16 @@ class FrequencyMap(FitAwareStep):
 
     def __init__(
         self,
-        max_levels: Optional[int] = None,
-        default: int = 0,
         source: str = "data.root",
         target: Optional[str] = None,
+        max_levels: Optional[int] = None,
+        default: int = 0,
         name: Optional[str] = None,
     ) -> None:
-        self.max_levels = max_levels
-        self.default = default
         self.source = source
         self.target = target or source
+        self.max_levels = max_levels
+        self.default = default
         self.cat_types: Dict[str, CategoricalDtype] = {}
 
         super().__init__(
@@ -86,16 +86,16 @@ class LabelMap(FitAwareStep):
 
     def __init__(
         self,
-        benign_tag: Optional[str] = None,
-        default: int = -1,
         source: str = "data.root",
         target: Optional[str] = None,
+        benign_tag: Optional[str] = None,
+        default: int = -1,
         name: Optional[str] = None,
     ) -> None:
-        self.benign_tag = benign_tag
-        self.default = default
         self.source = source
         self.target = target or source
+        self.benign_tag = benign_tag
+        self.default = default
         self.cat_types: Optional[CategoricalDtype] = None
 
         super().__init__(
