@@ -120,3 +120,33 @@ class StratifiedSplit(Step):
         obj.tab.set_partitions_from_labels(split_mapping)
         state["mapping.split"] = split_mapping
         state[self.target] = obj
+
+
+class AssignSplitPartitions(Step):
+
+    def __init__(
+        self,
+        source: str = "data.root",
+        target: str = "data",
+        name: str | None = None,
+    ) -> None:
+        self.source = source
+        self.target = target
+
+        super().__init__(
+            name=name or "finalize_splits",
+            requires=[self.source],
+            provides=[
+                self.target + ".train",
+                self.target + ".val",
+                self.target + ".test",
+            ],
+        )
+
+    def run(self, state: State) -> None:
+        obj = state[self.source]
+        validate_instance(obj, pd.DataFrame, self.name)
+
+        state[self.target + ".train"] = obj.tab.train
+        state[self.target + ".val"] = obj.tab.val
+        state[self.target + ".test"] = obj.tab.test

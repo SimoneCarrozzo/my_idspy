@@ -101,6 +101,22 @@ class Schema:
         role = ColumnRole.from_name(role)
         return self.roles[role]
 
+    @property
+    def numerical(self) -> List[str]:
+        return self.roles[ColumnRole.NUMERICAL]
+
+    @property
+    def categorical(self) -> List[str]:
+        return self.roles[ColumnRole.CATEGORICAL]
+
+    @property
+    def target(self) -> List[str]:
+        return self.roles[ColumnRole.TARGET]
+
+    @property
+    def features(self) -> List[str]:
+        return self.roles[ColumnRole.FEATURES]
+
     def prune_missing(self, existing: pd.Index) -> None:
         """Remove columns not present in dataframe."""
         # Convert to set for O(1) lookup instead of O(n) for each column

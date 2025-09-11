@@ -2,6 +2,8 @@ import logging
 
 import numpy as np
 
+from src.idspy.steps.dataops.dataloader import BuildDataLoader
+from src.idspy.steps.dataops.dataset import BuildDataset
 from src.idspy.core.pipeline import (
     FitAwareObservablePipeline,
     ObservablePipeline,
@@ -16,7 +18,7 @@ from src.idspy.steps.dataops.io import LoadData, SaveData
 from src.idspy.steps.preprocessing.adjust import DropNulls
 from src.idspy.steps.preprocessing.map import FrequencyMap, LabelMap
 from src.idspy.steps.preprocessing.scale import StandardScale
-from src.idspy.steps.preprocessing.split import StratifiedSplit
+from src.idspy.steps.preprocessing.split import AssignSplitPartitions, StratifiedSplit
 from src.idspy.data.tab_accessor import TabAccessor
 
 
@@ -105,14 +107,30 @@ def main():
             # DownsampleToMinority(class_col=schema.columns(ColumnRole.TARGET)[0]),
             StratifiedSplit(class_col=schema.columns(ColumnRole.TARGET)[0]),
             fit_aware_pipeline,
-            SaveData(path="resources/data/processed/cic_2018_v2", fmt="parquet"),
+            # SaveData(path="resources/data/processed/cic_2018_v2", fmt="parquet"),
         ],
         bus=bus,
         name="preprocessing_pipeline",
     )
 
+    training_pipeline = ObservablePipeline(
+        steps=[
+            AssignSplitPartitions(),
+            BuildDataset(source="data.train", target="dataset.train"),
+            BuildDataLoader(
+                source="dataset.train",
+                target="dataloader.train",
+                batch_size=64,
+                shuffle=True,
+            ),
+        ],
+        bus=bus,
+        name="training_pipeline",
+    )
+
     state = State()
     preprocessing_pipeline.run(state)
+    training_pipeline.run(state)
 
 
 if __name__ == "__main__":
