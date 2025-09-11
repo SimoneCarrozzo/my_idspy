@@ -14,8 +14,8 @@ class DownsampleToMinority(Step):
         class_col: str,
         source: str = "data.root",
         target: str | None = None,
-        name: str | None = None,
         random_state: int | None = None,
+        name: str | None = None,
     ) -> None:
         self.class_col = class_col
         self.source = source
@@ -62,19 +62,19 @@ class Downsample(Step):
     def __init__(
         self,
         frac: float,
-        class_col: str | None = None,
         source: str = "data.root",
         target: str | None = None,
-        name: str | None = None,
+        class_col: str | None = None,
         random_state: int | None = None,
+        name: str | None = None,
     ) -> None:
         if not (0.0 < frac <= 1.0):
             raise ValueError(f"downsample: frac must be in (0, 1], got {frac}.")
 
         self.frac = frac
-        self.class_col = class_col
         self.source = source
         self.target = target or source
+        self.class_col = class_col
         self.random_state = random_state
 
         super().__init__(
