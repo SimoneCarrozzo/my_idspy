@@ -4,8 +4,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Hashable, Literal, Tuple
 
-import numpy as np
-
 from ..events import Event
 
 
@@ -67,7 +65,9 @@ class Tracer:
     level: int = logging.INFO
     group_by: GroupBy = "type"
     log_first: bool = True
-    _last: Dict[Hashable, Tuple[str, datetime]] = field(default_factory=dict, init=False, repr=False)
+    _last: Dict[Hashable, Tuple[str, datetime]] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def _key(self, event: Event) -> Hashable:
         if self.group_by == "id":

@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 
-from ..utils import validate_instance, validate_schema_and_split
+from ..helpers import validate_instance
 from ...core.state import State
 from ...core.step import FitAwareStep
-from ...data.split import SplitName
+from ...data.partition import PartitionName
 from ...data.tab_accessor import reattach_meta
 
 
@@ -39,7 +39,6 @@ class FrequencyMap(FitAwareStep):
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
 
-        validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
         train_df = obj.tab.train
         self.cat_types.clear()
 
@@ -109,8 +108,6 @@ class LabelMap(FitAwareStep):
         """Learn ordered categories for the target col (if not binary)."""
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
-
-        validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
 
         # Early exit for binary case
         if self.benign_tag is not None:

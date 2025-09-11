@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Iterable, Optional, Sequence, Union
+from typing import Dict, Iterable, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -9,27 +9,27 @@ from sklearn.model_selection import train_test_split
 _EPS = 1e-9
 
 
-class SplitName(str, Enum):
+class PartitionName(str, Enum):
     TRAIN = "train"
     VAL = "val"
     TEST = "test"
 
 
 @dataclass(slots=True)
-class Split:
+class Partition:
     """Hold train/val/test split definitions by index labels."""
 
     mapping: Dict[str, pd.Index] = field(default_factory=dict)
 
     def set_from_labels(
-        self, name_to_labels: Dict[Union[str, "SplitName"], Iterable]
+        self, name_to_labels: Dict[Union[str, "PartitionName"], Iterable]
     ) -> None:
         """Define splits directly from index labels."""
         self.mapping = {str(k): pd.Index(v) for k, v in name_to_labels.items()}
 
     def set_from_positions(
         self,
-        name_to_pos: Dict[Union[str, "SplitName"], Iterable[int]],
+        name_to_pos: Dict[Union[str, "PartitionName"], Iterable[int]],
         index_labels: pd.Index,
     ) -> None:
         """Define splits from integer positions, converted to labels."""
@@ -38,12 +38,14 @@ class Split:
             for k, v in name_to_pos.items()
         }
 
-    def clone(self) -> "Split":
-        """Return a deep copy of this Split (with independent Index objects)."""
-        return Split(mapping={k: v.copy() for k, v in self.mapping.items()})
+    def clone(self) -> "Partition":
+        """Return a deep copy of this Partition (with independent Index objects)."""
+        return Partition(mapping={k: v.copy() for k, v in self.mapping.items()})
 
 
-def _validate_split_sizes(train_size: float, val_size: float, test_size: float) -> None:
+def _validate_partition_sizes(
+    train_size: float, val_size: float, test_size: float
+) -> None:
     for nm, v in (
         ("train_size", train_size),
         ("val_size", val_size),
@@ -73,10 +75,10 @@ def _split_indices(
     shuffle: bool = True,
 ) -> Dict[str, pd.Index]:
     """
-    Core splitter: if `source` is provided, uses stratification; otherwise random split.
+    Core splitter: if `target` is provided, uses stratification; otherwise random split.
     Returns a mapping {'train': Index, 'val': Index, 'test': Index}.
     """
-    _validate_split_sizes(train_size, val_size, test_size)
+    _validate_partition_sizes(train_size, val_size, test_size)
 
     if target is not None and len(target) != len(df):
         raise ValueError(
@@ -96,16 +98,16 @@ def _split_indices(
 
     if rel <= _EPS:
         return {
-            SplitName.TRAIN.value: train_idx,
-            SplitName.VAL.value: _empty_like_index(df.index),
-            SplitName.TEST.value: remaining_idx,
+            PartitionName.TRAIN.value: train_idx,
+            PartitionName.VAL.value: _empty_like_index(df.index),
+            PartitionName.TEST.value: remaining_idx,
         }
 
     if (1.0 - rel) <= _EPS:
         return {
-            SplitName.TRAIN.value: train_idx,
-            SplitName.VAL.value: remaining_idx,
-            SplitName.TEST.value: _empty_like_index(df.index),
+            PartitionName.TRAIN.value: train_idx,
+            PartitionName.VAL.value: remaining_idx,
+            PartitionName.TEST.value: _empty_like_index(df.index),
         }
 
     remaining_target = target[remaining_idx] if target is not None else None
@@ -119,9 +121,9 @@ def _split_indices(
     )
 
     return {
-        SplitName.TRAIN.value: train_idx,
-        SplitName.VAL.value: val_idx,
-        SplitName.TEST.value: test_idx,
+        PartitionName.TRAIN.value: train_idx,
+        PartitionName.VAL.value: val_idx,
+        PartitionName.TEST.value: test_idx,
     }
 
 

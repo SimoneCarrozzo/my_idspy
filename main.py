@@ -10,9 +10,9 @@ from src.idspy.core.pipeline import (
 from src.idspy.core.state import State
 from src.idspy.data.schema import Schema, ColumnRole
 from src.idspy.events.bus import EventBus
-from src.idspy.events.subscribers.logging import Logger, DataFrameProfiler
-from src.idspy.services.setup import setup_logging
-from src.idspy.steps.io import LoadData, SaveData
+from src.idspy.events.handlers.logging import Logger, DataFrameProfiler
+from src.idspy.common.logging import setup_logging
+from src.idspy.steps.dataops.io import LoadData, SaveData
 from src.idspy.steps.preprocessing.adjust import DropNulls
 from src.idspy.steps.preprocessing.map import FrequencyMap, LabelMap
 from src.idspy.steps.preprocessing.scale import StandardScale

@@ -1,9 +1,9 @@
 import pandas as pd
 
-from src.idspy.core.state import State
-from src.idspy.core.step import Step
-from src.idspy.data.split import random_split, stratified_split
-from src.idspy.steps.utils import validate_instance, validate_split
+from ...core.state import State
+from ...core.step import Step
+from ...data.partition import random_split, stratified_split
+from ...steps.helpers import validate_instance
 
 
 def _validate_sizes(step: str, train: float, val: float, test: float) -> None:
@@ -61,7 +61,7 @@ class RandomSplit(Step):
             random_state=self.random_state,
         )
 
-        obj.tab.set_splits_from_labels(split_mapping)
+        obj.tab.set_partitions_from_labels(split_mapping)
         state["mapping.split"] = split_mapping
         state[self.target] = obj
 
@@ -117,6 +117,6 @@ class StratifiedSplit(Step):
             random_state=self.random_state,
         )
 
-        obj.tab.set_splits_from_labels(split_mapping)
+        obj.tab.set_partitions_from_labels(split_mapping)
         state["mapping.split"] = split_mapping
         state[self.target] = obj

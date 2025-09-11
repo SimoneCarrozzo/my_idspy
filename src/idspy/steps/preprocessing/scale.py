@@ -3,10 +3,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from ..utils import validate_instance, validate_schema_and_split
+from ..helpers import validate_instance
 from ...core.state import State
 from ...core.step import FitAwareStep
-from ...data.split import SplitName
+from ...data.partition import PartitionName
 
 
 class StandardScale(FitAwareStep):
@@ -35,7 +35,6 @@ class StandardScale(FitAwareStep):
         """Fit scaling stats on train split (overflow-safe)."""
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
-        validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
 
         num = obj.tab.train.tab.numerical
         if num.shape[1] == 0:
@@ -103,7 +102,6 @@ class MinMaxScale(FitAwareStep):
         """Fit min/max on train split."""
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
-        validate_schema_and_split(obj, self.source, [SplitName.TRAIN.value])
 
         num = obj.tab.train.tab.numerical
         if num.shape[1] == 0:

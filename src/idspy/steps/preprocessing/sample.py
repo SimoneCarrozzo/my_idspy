@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ..utils import validate_instance
+from ..helpers import validate_instance
 from ...core.state import State
 from ...core.step import Step
 from ...data.tab_accessor import reattach_meta

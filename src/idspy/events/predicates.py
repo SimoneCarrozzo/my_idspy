@@ -1,4 +1,4 @@
-from src.idspy.events.bus import Predicate
+from .bus import Predicate
 
 
 def and_(*predicates: Predicate) -> Predicate:

@@ -91,17 +91,14 @@ class DataFrameRepository:
 
         Note:
             Metadata is saved to a separate .meta file alongside the data file
-            and contains schema and splits information from df.attrs.
+            and contains schema and partitions information from df.attrs.
         """
         file_path, resolved_fmt = cls._resolve_path_and_format(base_path, name, fmt)
 
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         if save_meta:
-            meta = {
-                "schema": df.attrs.get("_schema"),
-                "splits": df.attrs.get("_splits"),
-            }
+            meta = df.tab.get_meta()
             # Save metadata to a separate file with .meta extension
             meta_path = cls._get_metadata_path(file_path)
 
@@ -147,15 +144,12 @@ class DataFrameRepository:
                 try:
                     with open(meta_path, "rb") as f:
                         meta = pickle.load(f)
-                    if "schema" in meta and meta["schema"] is not None:
-                        df.attrs["_schema"] = meta["schema"]
-                    if "splits" in meta and meta["splits"] is not None:
-                        df.attrs["_splits"] = meta["splits"]
+                        df.tab.load_meta(meta)
                 except Exception:
                     # If metadata loading fails, continue without metadata
                     pass
         if schema:
-            df.attrs["_schema"] = schema
+            df.tab.set_schema(schema)
 
         return df
 

@@ -5,21 +5,33 @@ import pandas as pd
 from pandas.api.extensions import register_dataframe_accessor
 
 from .schema import Schema, ColumnRole
-from .split import Split, SplitName
-from ..services.profiler import time_profiler
+from .partition import Partition, PartitionName
+from ..common.profiler import time_profiler
 
 
 @register_dataframe_accessor("tab")
 class TabAccessor:
-    """Schema + split accessor."""
+    """Schema + partition accessor."""
 
     def __init__(self, pandas_obj: pd.DataFrame):
         self._obj = pandas_obj
 
         if "_schema" not in self._obj.attrs:
             self._obj.attrs["_schema"] = Schema()
-        if "_splits" not in self._obj.attrs:
-            self._obj.attrs["_splits"] = Split()
+        if "_partitions" not in self._obj.attrs:
+            self._obj.attrs["_partitions"] = Partition()
+
+    def get_meta(self) -> Dict[str, Union[Schema, Partition]]:
+        """Get schema and partitions as a dictionary."""
+        return {"_schema": self.schema, "_partitions": self.partitions}
+
+    def load_meta(self, meta: Dict[str, Union[Schema, Partition]]) -> pd.DataFrame:
+        """Load schema and partitions from a dictionary."""
+        if "_schema" in meta and isinstance(meta["_schema"], Schema):
+            self._obj.attrs["_schema"] = meta["_schema"]
+        if "_partitions" in meta and isinstance(meta["_partitions"], Partition):
+            self._obj.attrs["_partitions"] = meta["_partitions"]
+        return self._obj
 
     def _get_columns_for_role(self, role: Union[ColumnRole, str]) -> List[str]:
         """Get columns for role."""
@@ -39,12 +51,12 @@ class TabAccessor:
         return self._obj.attrs["_schema"]
 
     @property
-    def splits(self) -> Split:
-        """Get the splits from DataFrame attrs."""
-        return self._obj.attrs["_splits"]
+    def partitions(self) -> Partition:
+        """Get the partitions from DataFrame attrs."""
+        return self._obj.attrs["_partitions"]
 
     def set_schema(
-        self, schema: Union["Schema", None] = None, **roles: List[str]
+        self, schema: Optional["Schema"] = None, **roles: List[str]
     ) -> pd.DataFrame:
         """Replace schema with new role definitions (string keys allowed)."""
         if schema is not None:
@@ -119,28 +131,28 @@ class TabAccessor:
         cols = self._get_columns_for_role(ColumnRole.CATEGORICAL)
         self._assign_block(updated, cols=cols)
 
-    def set_splits_from_labels(self, mapping: Dict[str, Iterable]) -> pd.DataFrame:
-        """Define splits from index labels."""
-        sp = Split()
+    def set_partitions_from_labels(self, mapping: Dict[str, Iterable]) -> pd.DataFrame:
+        """Define partitions from index labels."""
+        sp = Partition()
         sp.set_from_labels(mapping)
-        self._obj.attrs["_splits"] = sp
+        self._obj.attrs["_partitions"] = sp
         return self._obj
 
-    def set_splits_from_positions(
+    def set_partitions_from_positions(
         self, mapping: Dict[str, Iterable[int]]
     ) -> pd.DataFrame:
-        """Define splits from integer positions."""
-        sp = Split()
+        """Define partitions from integer positions."""
+        sp = Partition()
         sp.set_from_positions(mapping, self._obj.index)
-        self._obj.attrs["_splits"] = sp
+        self._obj.attrs["_partitions"] = sp
         return self._obj
 
-    def get_split(self, name: str) -> pd.DataFrame:
-        """Return dataframe slice for a split with metadata attached."""
-        if name not in self.splits.mapping:
-            raise KeyError(f"Split '{name}' is not defined.")
+    def get_partition(self, name: str) -> pd.DataFrame:
+        """Return dataframe slice for a partition with metadata attached."""
+        if name not in self.partitions.mapping:
+            raise KeyError(f"Partition '{name}' is not defined.")
 
-        split_index = self.splits.mapping[name]
+        split_index = self.partitions.mapping[name]
         if split_index.equals(self._obj.index):
             out = self._obj
         else:
@@ -151,33 +163,33 @@ class TabAccessor:
 
     @property
     def train(self) -> pd.DataFrame:
-        return self.get_split(SplitName.TRAIN.value)
+        return self.get_partition(PartitionName.TRAIN.value)
 
     @train.setter
     def train(self, updated: pd.DataFrame) -> None:
-        split_index = self.splits.mapping.get(SplitName.TRAIN.value)
+        split_index = self.partitions.mapping.get(PartitionName.TRAIN.value)
         if split_index is not None:
             mask = self._obj.index.isin(split_index)
             self._assign_block(updated, mask=mask, cols=None)
 
     @property
     def val(self) -> pd.DataFrame:
-        return self.get_split(SplitName.VAL.value)
+        return self.get_partition(PartitionName.VAL.value)
 
     @val.setter
     def val(self, updated: pd.DataFrame) -> None:
-        split_index = self.splits.mapping.get(SplitName.VAL.value)
+        split_index = self.partitions.mapping.get(PartitionName.VAL.value)
         if split_index is not None:
             mask = self._obj.index.isin(split_index)
             self._assign_block(updated, mask=mask, cols=None)
 
     @property
     def test(self) -> pd.DataFrame:
-        return self.get_split(SplitName.TEST.value)
+        return self.get_partition(PartitionName.TEST.value)
 
     @test.setter
     def test(self, updated: pd.DataFrame) -> None:
-        split_index = self.splits.mapping.get(SplitName.TEST.value)
+        split_index = self.partitions.mapping.get(PartitionName.TEST.value)
         if split_index is not None:
             mask = self._obj.index.isin(split_index)
             self._assign_block(updated, mask=mask, cols=None)
@@ -221,16 +233,16 @@ class TabAccessor:
 
 
 def reattach_meta(src: pd.DataFrame, out: pd.DataFrame) -> pd.DataFrame:
-    """Copy _schema and _splits from src to out as direct references."""
+    """Copy _schema and _partitions from src to out as direct references."""
     if not isinstance(src, pd.DataFrame) or not isinstance(out, pd.DataFrame):
         raise ValueError("Both arguments must be pandas DataFrames.")
 
     schema = src.attrs.get("_schema")
-    splits = src.attrs.get("_splits")
+    splits = src.attrs.get("_partitions")
 
     if schema is not None:
         out.attrs["_schema"] = schema
     if splits is not None:
-        out.attrs["_splits"] = splits
+        out.attrs["_partitions"] = splits
 
     return out

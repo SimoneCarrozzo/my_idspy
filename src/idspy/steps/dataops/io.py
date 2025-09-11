@@ -1,14 +1,13 @@
 from pathlib import Path
-from typing import Optional, Any, Mapping
+from typing import Optional, Any
 
 import pandas as pd
 
-from .utils import validate_instance, validate_split
-from ..core.state import State
-from ..core.step import Step
-from ..data.repository import DataFrameRepository
-from ..data.schema import Schema
-from ..data.split import SplitName
+from ..helpers import validate_instance
+from ...core.state import State
+from ...core.step import Step
+from ...data.repository import DataFrameRepository
+from ...data.schema import Schema
 
 
 class LoadData(Step):

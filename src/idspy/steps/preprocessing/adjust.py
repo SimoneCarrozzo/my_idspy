@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from ..utils import validate_instance, validate_schema
+from ..helpers import validate_instance
 from ...core.state import State
 from ...core.step import Step
 from ...data.tab_accessor import reattach_meta
@@ -82,7 +82,6 @@ class Log1p(Step):
     def run(self, state: State) -> None:
         obj = state[self.source]
         validate_instance(obj, pd.DataFrame, self.name)
-        validate_schema(obj, self.name)
 
         obj.tab.numerical = np.log1p(obj.tab.numerical)
         state[self.target] = obj

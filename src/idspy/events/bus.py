@@ -6,14 +6,15 @@ from .events import Event
 
 logger = logging.getLogger(__name__)
 
-Subscriber = Callable[[Event], None]
+Handler = Callable[[Event], None]
 Predicate = Callable[[Event], bool]
 
 
 @dataclass(frozen=True, slots=True)
 class _Entry:
     """Subscription entry."""
-    callback: Subscriber
+
+    callback: Handler
     predicate: Optional[Predicate]
     token: int  # unique id for unsubscription
 
@@ -28,10 +29,10 @@ class EventBus:
         self._next_token: int = 1
 
     def subscribe(
-            self,
-            callback: Subscriber,
-            event_type: Optional[str] = None,
-            predicate: Optional[Predicate] = None,
+        self,
+        callback: Handler,
+        event_type: Optional[str] = None,
+        predicate: Optional[Predicate] = None,
     ) -> int:
         """Register callback; returns a token."""
         token = self._next_token
@@ -40,14 +41,16 @@ class EventBus:
         return token
 
     def on(
-            self,
-            event_type: Optional[str] = None,
-            predicate: Optional[Predicate] = None,
-    ) -> Callable[[Subscriber], Subscriber]:
+        self,
+        event_type: Optional[str] = None,
+        predicate: Optional[Predicate] = None,
+    ) -> Callable[[Handler], Handler]:
         """Decorator to subscribe a handler."""
 
-        def decorator(fn: Subscriber) -> Subscriber:
-            self.subscribe(fn, event_type=event_type, predicate=predicate)  # FIX: callback first
+        def decorator(fn: Handler) -> Handler:
+            self.subscribe(
+                fn, event_type=event_type, predicate=predicate
+            )  # FIX: callback first
             return fn
 
         return decorator
@@ -76,4 +79,6 @@ class EventBus:
                 if entry.predicate is None or entry.predicate(event):
                     entry.callback(event)
             except Exception:
-                logger.exception("Subscriber error for %s (id=%s)", event.type, event.id)
+                logger.exception(
+                    "Subscriber error for %s (id=%s)", event.type, event.id
+                )
