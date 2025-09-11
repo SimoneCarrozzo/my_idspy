@@ -1,4 +1,7 @@
-from .bus import Predicate
+from typing import Callable, TypeVar
+
+T = TypeVar("T")
+Predicate = Callable[[T], bool]
 
 
 def and_(*predicates: Predicate) -> Predicate:
@@ -24,23 +27,3 @@ def any_of(predicates: list[Predicate]) -> Predicate:
 def all_of(predicates: list[Predicate]) -> Predicate:
     """Alias for and_ with a list."""
     return and_(*predicates)
-
-
-def only_id(event_id: str) -> Predicate:
-    """Accept only events with a specific ID (pipeline/step)."""
-    return lambda e: e.id == event_id
-
-
-def id_startswith(prefix: str) -> Predicate:
-    """Accept events whose ID starts with the given prefix."""
-    return lambda e: e.id.startswith(prefix)
-
-
-def has_payload_key(key: str) -> Predicate:
-    """Accept events that carry a certain payload key."""
-    return lambda e: key in e.payload
-
-
-def payload_equals(key: str, value: object) -> Predicate:
-    """Accept events where a payload key equals a specific value."""
-    return lambda e: e.payload.get(key) == value

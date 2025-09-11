@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Mapping, Dict, Final
 
+from ..common.predicate import Predicate
+
 EMPTY_MAP: Final[Mapping[str, Any]] = MappingProxyType({})
+EventPredicate = Predicate["Event"]
 
 
 def _ro(mapping: Mapping[str, Any] | None) -> Mapping[str, Any]:
@@ -18,6 +21,7 @@ def _ro(mapping: Mapping[str, Any] | None) -> Mapping[str, Any]:
 @dataclass(frozen=True, slots=True)
 class Event:
     """Immutable event."""
+
     type: str
     id: str
     payload: Mapping[str, Any] = field(default_factory=lambda: EMPTY_MAP)
@@ -42,3 +46,23 @@ class Event:
         head = keys[:5]
         more = f", +{len(keys) - 5} keys" if len(keys) > 5 else ""
         return f"Event({self.type!r}, id={self.id!r}, payload_keys={head!r}{more})"
+
+
+def only_id(event_id: str) -> EventPredicate:
+    """Accept only events with a specific ID (pipeline/step)."""
+    return lambda e: e.id == event_id
+
+
+def id_startswith(prefix: str) -> EventPredicate:
+    """Accept events whose ID starts with the given prefix."""
+    return lambda e: e.id.startswith(prefix)
+
+
+def has_payload_key(key: str) -> EventPredicate:
+    """Accept events that carry a certain payload key."""
+    return lambda e: key in e.payload
+
+
+def payload_equals(key: str, value: object) -> EventPredicate:
+    """Accept events where a payload key equals a specific value."""
+    return lambda e: e.payload.get(key) == value

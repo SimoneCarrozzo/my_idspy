@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Iterable, Optional, Set, Any, override, Callable
 
-from .state import State
+from .state import State, StatePredicate
 
 
 class Step(ABC):
@@ -74,12 +74,13 @@ class FitAwareStep(Step, ABC):
         requires: Optional[Iterable[str]] = None,
         provides: Optional[Iterable[str]] = None,
     ) -> None:
+        self._is_fitted: bool = False
+
         super().__init__(
             name=name,
             requires=requires,
             provides=provides,
         )
-        self._is_fitted: bool = False
 
     @property
     def is_fitted(self) -> bool:
@@ -114,23 +115,30 @@ class Repeat(Step):
         self,
         step: Step,
         count: int,
+        predicate: Optional[StatePredicate] = None,
         name: Optional[str] = None,
     ) -> None:
 
         if count <= 0:
             raise ValueError("count must be > 0")
+
+        self.step = step
+        self.count = count
+        self.predicate = predicate
+
         super().__init__(
             name=name or f"repeat({step.name})",
             requires=set(step.requires),
             provides=set(step.provides),
         )
-        self.step = step
-        self.count = count
 
     def run(self, state: State) -> None:
         for _ in range(self.count):
             self.step(state)
 
+            if self.predicate and self.predicate(state):
+                break
+
     def __repr__(self) -> str:
         base = super().__repr__().rstrip(")")
-        return f"repeated({base}, count={self.count})"
+        return f"repeated({base}, count={self.count}, predicate={self.predicate})"

@@ -2,7 +2,10 @@ from collections.abc import MutableMapping, Iterator
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from ..common.predicate import Predicate
+
 _SEPARATOR = "."
+StatePredicate = Predicate["State"]
 
 
 class ScopedView(MutableMapping[str, Any]):
@@ -110,3 +113,33 @@ class State(MutableMapping[str, Any]):
         body = ", ".join(f"{k!r}: {v!r}" for k, v in items)
         suffix = ", ..." if n > 6 else ""
         return f"State(size={n}, data={{{body}{suffix}}})"
+
+
+def has_key(key: str) -> StatePredicate:
+    """Accept states that contain a certain key."""
+    return lambda state: key in state
+
+
+def key_equals(key: str, value: object) -> StatePredicate:
+    """Accept states where a key equals a specific value."""
+    return lambda state: state.get(key) == value
+
+
+def key_not_equals(key: str, value: object) -> StatePredicate:
+    """Accept states where a key does not equal a specific value."""
+    return lambda state: state.get(key) != value
+
+
+def key_exists_and(key: str, predicate: Predicate) -> StatePredicate:
+    """Accept states where a key exists and its value satisfies the predicate."""
+    return lambda state: key in state and predicate(state[key])
+
+
+def key_is_truthy(key: str) -> StatePredicate:
+    """Accept states where a key exists and its value is truthy."""
+    return lambda state: bool(state.get(key))
+
+
+def key_is_falsy(key: str) -> StatePredicate:
+    """Accept states where a key does not exist or its value is falsy."""
+    return lambda state: not state.get(key)
