@@ -127,7 +127,7 @@ class Repeat(Step):
         self.predicate = predicate
 
         super().__init__(
-            name=name or f"repeat({step.name})",
+            name=name or f"repeated({step.name})",
             requires=set(step.requires),
             provides=set(step.provides),
         )
@@ -142,3 +142,36 @@ class Repeat(Step):
     def __repr__(self) -> str:
         base = super().__repr__().rstrip(")")
         return f"repeated({base}, count={self.count}, predicate={self.predicate})"
+
+
+class ContextualStep(Step, ABC):
+    """Step that runs within a context manager."""
+
+    def __init__(
+        self,
+        step: Step,
+        target: str = "context",
+        name: Optional[str] = None,
+    ) -> None:
+        self.step = step
+        self.target = target
+
+        super().__init__(
+            name=name or f"contextual({step.name})",
+            requires=set(step.requires),
+            provides=set(step.provides + [self.target]),
+        )
+
+    @abstractmethod
+    def context(self, state: State) -> Any:
+        """Return a context manager."""
+        ...
+
+    def run(self, state: State) -> None:
+        with self.context(state) as ctx:
+            state[self.target] = ctx
+            self.step(state)
+
+    def __repr__(self) -> str:
+        base = super().__repr__().rstrip(")")
+        return f"contextual({base})"

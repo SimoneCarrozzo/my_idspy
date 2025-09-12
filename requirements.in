@@ -9,3 +9,4 @@ matplotlib
 hydra-core
 pyclustertend
 pyarrow
+tensorboard
