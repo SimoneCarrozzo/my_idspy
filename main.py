@@ -2,23 +2,25 @@ import logging
 
 import numpy as np
 
-from src.idspy.steps.dataops.dataloader import BuildDataLoader
-from src.idspy.steps.dataops.dataset import BuildDataset
+
 from src.idspy.core.pipeline import (
     FitAwareObservablePipeline,
     ObservablePipeline,
     PipelineEvent,
 )
+from src.idspy.common.logging import setup_logging
 from src.idspy.core.state import State
 from src.idspy.data.schema import Schema, ColumnRole
 from src.idspy.events.bus import EventBus
 from src.idspy.events.handlers.logging import Logger, DataFrameProfiler
-from src.idspy.common.logging import setup_logging
-from src.idspy.steps.dataops.io import LoadData, SaveData
-from src.idspy.steps.preprocessing.adjust import DropNulls
-from src.idspy.steps.preprocessing.map import FrequencyMap, LabelMap
-from src.idspy.steps.preprocessing.scale import StandardScale
-from src.idspy.steps.preprocessing.split import AssignSplitPartitions, StratifiedSplit
+from src.idspy.steps.io.saver import SaveData
+from src.idspy.steps.io.loader import LoadData
+from src.idspy.steps.builders.dataloader import BuildDataLoader
+from src.idspy.steps.builders.dataset import BuildDataset
+from src.idspy.steps.transforms.adjust import DropNulls
+from src.idspy.steps.transforms.map import FrequencyMap, LabelMap
+from src.idspy.steps.transforms.scale import StandardScale
+from src.idspy.steps.transforms.split import AssignSplitPartitions, StratifiedSplit
 from src.idspy.data.tab_accessor import TabAccessor
 
 
