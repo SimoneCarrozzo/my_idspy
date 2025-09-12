@@ -101,15 +101,15 @@ def main():
     preprocessing_pipeline = ObservablePipeline(
         steps=[
             LoadData(
-                path="resources/data/dataset_v2/cic_2018_v2.csv",
+                path_in="resources/data/dataset_v2/cic_2018_v2.csv",
                 schema=schema,
                 nrows=1000000,
             ),
             DropNulls(),
-            # DownsampleToMinority(class_col=schema.columns(ColumnRole.TARGET)[0]),
-            StratifiedSplit(class_col=schema.columns(ColumnRole.TARGET)[0]),
+            # DownsampleToMinority(class_column=schema.columns(ColumnRole.TARGET)[0]),
+            StratifiedSplit(class_column=schema.columns(ColumnRole.TARGET)[0]),
             fit_aware_pipeline,
-            # SaveData(path="resources/data/processed/cic_2018_v2", fmt="parquet"),
+            # SaveData(path_out="resources/data/processed/cic_2018_v2", fmt="parquet"),
         ],
         bus=bus,
         name="preprocessing_pipeline",
@@ -118,10 +118,10 @@ def main():
     training_pipeline = ObservablePipeline(
         steps=[
             AssignSplitPartitions(),
-            BuildDataset(source="data.train", target="dataset.train"),
+            BuildDataset(dataframe_in="data.train", dataset_out="dataset.train"),
             BuildDataLoader(
-                source="dataset.train",
-                target="dataloader.train",
+                dataset_in="dataset.train",
+                dataloader_out="dataloader.train",
                 batch_size=64,
                 shuffle=True,
             ),

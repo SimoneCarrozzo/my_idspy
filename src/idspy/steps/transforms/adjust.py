@@ -12,25 +12,25 @@ class DropNulls(Step):
 
     def __init__(
         self,
-        source: str = "data.root",
-        target: str | None = None,
+        dataframe_in: str = "data.root",
+        dataframe_out: str | None = None,
         name: str | None = None,
     ) -> None:
-        self.source = source
-        self.target = target or source
+        self.dataframe_in = dataframe_in
+        self.dataframe_out = dataframe_out or dataframe_in
 
         super().__init__(
             name=name or "drop_nulls",
-            requires=[self.source],
-            provides=[self.target],
+            requires=[self.dataframe_in],
+            provides=[self.dataframe_out],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
-        obj = obj.replace([np.inf, -np.inf], np.nan).dropna()
-        state[self.target] = obj
+        dataframe = dataframe.replace([np.inf, -np.inf], np.nan).dropna()
+        state[self.dataframe_out] = dataframe
 
 
 class Filter(Step):
@@ -39,26 +39,26 @@ class Filter(Step):
     def __init__(
         self,
         query: str,
-        source: str = "data.root",
-        target: str | None = None,
+        dataframe_in: str = "data.root",
+        dataframe_out: str | None = None,
         name: str | None = None,
     ) -> None:
         self.query = query
-        self.source = source
-        self.target = target or source
+        self.dataframe_in = dataframe_in
+        self.dataframe_out = dataframe_out or dataframe_in
 
         super().__init__(
             name=name or "filter",
-            requires=[self.source],
-            provides=[self.target],
+            requires=[self.dataframe_in],
+            provides=[self.dataframe_out],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
-        out = obj.query(self.query)
-        state[self.target] = reattach_meta(obj, out)
+        filtered = dataframe.query(self.query)
+        state[self.dataframe_out] = reattach_meta(dataframe, filtered)
 
 
 class Log1p(Step):
@@ -66,22 +66,22 @@ class Log1p(Step):
 
     def __init__(
         self,
-        source: str = "data.root",
-        target: str | None = None,
+        dataframe_in: str = "data.root",
+        dataframe_out: str | None = None,
         name: str | None = None,
     ) -> None:
-        self.source = source
-        self.target = target or source
+        self.dataframe_in = dataframe_in
+        self.dataframe_out = dataframe_out or dataframe_in
 
         super().__init__(
             name=name or "log1p",
-            requires=[self.source],
-            provides=[self.target],
+            requires=[self.dataframe_in],
+            provides=[self.dataframe_out],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
-        obj.tab.numerical = np.log1p(obj.tab.numerical)
-        state[self.target] = obj
+        dataframe.tab.numerical = np.log1p(dataframe.tab.numerical)
+        state[self.dataframe_out] = dataframe

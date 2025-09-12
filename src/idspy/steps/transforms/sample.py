@@ -11,49 +11,49 @@ class DownsampleToMinority(Step):
 
     def __init__(
         self,
-        class_col: str,
-        source: str = "data.root",
-        target: str | None = None,
+        class_column: str,
+        dataframe_in: str = "data.root",
+        dataframe_out: str | None = None,
         random_state: int | None = None,
         name: str | None = None,
     ) -> None:
-        self.class_col = class_col
-        self.source = source
-        self.target = target or source
+        self.class_column = class_column
+        self.dataframe_in = dataframe_in
+        self.dataframe_out = dataframe_out or dataframe_in
         self.random_state = random_state
 
         super().__init__(
             name=name or "downsample_to_minority",
-            requires=[self.source],
-            provides=[self.target],
+            requires=[self.dataframe_in],
+            provides=[self.dataframe_out],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
         # Early exits for edge cases
-        if obj.empty or self.class_col not in obj.columns:
-            state[self.target] = obj
+        if dataframe.empty or self.class_column not in dataframe.columns:
+            state[self.dataframe_out] = dataframe
             return
 
-        counts = obj[self.class_col].value_counts(dropna=False)
+        counts = dataframe[self.class_column].value_counts(dropna=False)
         if counts.empty:
-            state[self.target] = obj
+            state[self.dataframe_out] = dataframe
             return
 
         minority = int(counts.min())
         if minority <= 0:
-            sampled = obj.iloc[0:0]  # empty but keep schema
-            state[self.target] = reattach_meta(obj, sampled)
+            sampled = dataframe.iloc[0:0]  # empty but keep schema
+            state[self.dataframe_out] = reattach_meta(dataframe, sampled)
             return
 
         # Efficient sampling: avoid full shuffle if not needed
-        sampled = obj.groupby(
-            self.class_col, dropna=False, group_keys=False, sort=False
+        sampled = dataframe.groupby(
+            self.class_column, dropna=False, group_keys=False, sort=False
         ).sample(n=minority, replace=False, random_state=self.random_state)
 
-        state[self.target] = reattach_meta(obj, sampled)
+        state[self.dataframe_out] = reattach_meta(dataframe, sampled)
 
 
 class Downsample(Step):
@@ -62,9 +62,9 @@ class Downsample(Step):
     def __init__(
         self,
         frac: float,
-        source: str = "data.root",
-        target: str | None = None,
-        class_col: str | None = None,
+        dataframe_in: str = "data.root",
+        dataframe_out: str | None = None,
+        class_column: str | None = None,
         random_state: int | None = None,
         name: str | None = None,
     ) -> None:
@@ -72,35 +72,35 @@ class Downsample(Step):
             raise ValueError(f"downsample: frac must be in (0, 1], got {frac}.")
 
         self.frac = frac
-        self.source = source
-        self.target = target or source
-        self.class_col = class_col
+        self.dataframe_in = dataframe_in
+        self.dataframe_out = dataframe_out or dataframe_in
+        self.class_column = class_column
         self.random_state = random_state
 
         super().__init__(
             name=name or "downsample",
-            requires=[self.source],
-            provides=[self.target],
+            requires=[self.dataframe_in],
+            provides=[self.dataframe_out],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
-        if obj.empty:
-            state[self.target] = obj
+        if dataframe.empty:
+            state[self.dataframe_out] = dataframe
             return
 
         # Optimized sampling logic
-        if self.class_col is not None and self.class_col in obj.columns:
+        if self.class_column is not None and self.class_column in dataframe.columns:
             # Per-class sampling with efficient groupby
-            sampled = obj.groupby(
-                self.class_col, dropna=False, group_keys=False, sort=False
+            sampled = dataframe.groupby(
+                self.class_column, dropna=False, group_keys=False, sort=False
             ).sample(frac=self.frac, replace=False, random_state=self.random_state)
         else:
-            # Global sampling (handles both None class_col and missing column cases)
-            sampled = obj.sample(
+            # Global sampling (handles both None class_column and missing column cases)
+            sampled = dataframe.sample(
                 frac=self.frac, replace=False, random_state=self.random_state
             )
 
-        state[self.target] = reattach_meta(obj, sampled)
+        state[self.dataframe_out] = reattach_meta(dataframe, sampled)

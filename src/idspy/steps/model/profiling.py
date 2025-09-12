@@ -19,7 +19,7 @@ class TorchProfiler(ContextualStep):
         self,
         step: Step,
         log_dir: str,
-        target: str = "profiler",
+        profiler_out: str = "profiler",
         name: Optional[str] = None,
         # Profiler knobs
         wait: int = 1,
@@ -31,10 +31,11 @@ class TorchProfiler(ContextualStep):
         with_stack: bool = False,
         with_flops: bool = False,
     ) -> None:
-        super().__init__(step=step, target=target, name=name)
+        super().__init__(step=step, provides=[profiler_out], name=name)
 
         # store config
         self.log_dir = log_dir
+        self.profiler_out = profiler_out
         self.wait = wait
         self.warmup = warmup
         self.active = active
@@ -70,5 +71,5 @@ class TorchProfiler(ContextualStep):
             with_flops=self.with_flops,
         )
 
-        state[self.target] = profiler
+        state[self.profiler_out] = profiler
         return profiler

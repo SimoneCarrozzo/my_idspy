@@ -21,16 +21,16 @@ class RandomSplit(Step):
 
     def __init__(
         self,
-        source: str = "data.root",
-        target: str | None = None,
+        dataframe_in: str = "data.root",
+        dataframe_out: str | None = None,
         train_size: float = 0.7,
         val_size: float = 0.15,
         test_size: float = 0.15,
         random_state: int | None = None,
         name: str | None = None,
     ) -> None:
-        self.source = source
-        self.target = target or source
+        self.dataframe_in = dataframe_in
+        self.dataframe_out = dataframe_out or dataframe_in
         self.train_size = train_size
         self.val_size = val_size
         self.test_size = test_size
@@ -40,30 +40,30 @@ class RandomSplit(Step):
 
         super().__init__(
             name=name or "random_split",
-            requires=[self.source],
-            provides=[self.target, "mapping.split"],
+            requires=[self.dataframe_in],
+            provides=[self.dataframe_out, "mapping.split"],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
-        if obj.empty:
+        if dataframe.empty:
             state["mapping.split"] = {}
-            state[self.target] = obj
+            state[self.dataframe_out] = dataframe
             return
 
         split_mapping = random_split(
-            obj,
+            dataframe,
             train_size=self.train_size,
             val_size=self.val_size,
             test_size=self.test_size,
             random_state=self.random_state,
         )
 
-        obj.tab.set_partitions_from_labels(split_mapping)
+        dataframe.tab.set_partitions_from_labels(split_mapping)
         state["mapping.split"] = split_mapping
-        state[self.target] = obj
+        state[self.dataframe_out] = dataframe
 
 
 class StratifiedSplit(Step):
@@ -71,82 +71,81 @@ class StratifiedSplit(Step):
 
     def __init__(
         self,
-        source: str = "data.root",
-        target: str | None = None,
+        dataframe_in: str = "data.root",
+        dataframe_out: str | None = None,
         train_size: float = 0.7,
         val_size: float = 0.15,
         test_size: float = 0.15,
-        class_col: str | None = None,
+        class_column: str | None = None,
         random_state: int | None = None,
         name: str | None = None,
     ) -> None:
-        self.source = source
-        self.target = target or source
+        self.dataframe_in = dataframe_in
+        self.dataframe_out = dataframe_out or dataframe_in
         self.train_size = train_size
         self.val_size = val_size
         self.test_size = test_size
-        self.class_col = class_col
+        self.class_column = class_column
         self.random_state = random_state
 
         _validate_sizes(name or "stratified_split", train_size, val_size, test_size)
 
         super().__init__(
             name=name or "stratified_split",
-            requires=[self.source],
-            provides=[self.target, "mapping.split"],
+            requires=[self.dataframe_in],
+            provides=[self.dataframe_out, "mapping.split"],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
-        if obj.empty:
+        if dataframe.empty:
             state["mapping.split"] = {}
-            state[self.target] = obj
+            state[self.dataframe_out] = dataframe
             return
 
-        if not self.class_col:
-            raise ValueError("stratified_split: 'class_col' must be provided.")
+        if not self.class_column:
+            raise ValueError("stratified_split: 'class_column' must be provided.")
 
         split_mapping = stratified_split(
-            obj,
-            self.class_col,
+            dataframe,
+            self.class_column,
             train_size=self.train_size,
             val_size=self.val_size,
             test_size=self.test_size,
             random_state=self.random_state,
         )
 
-        obj.tab.set_partitions_from_labels(split_mapping)
+        dataframe.tab.set_partitions_from_labels(split_mapping)
         state["mapping.split"] = split_mapping
-        state[self.target] = obj
+        state[self.dataframe_out] = dataframe
 
 
 class AssignSplitPartitions(Step):
-
     def __init__(
         self,
-        source: str = "data.root",
-        target: str = "data",
+        dataframe_in: str = "data.root",
+        dataframe_out: str = "data",
         name: str | None = None,
     ) -> None:
-        self.source = source
-        self.target = target
+        self.dataframe_in = dataframe_in
+        self.dataframe_out = dataframe_out
 
         super().__init__(
             name=name or "finalize_splits",
-            requires=[self.source],
+            requires=[self.dataframe_in],
             provides=[
-                self.target + ".train",
-                self.target + ".val",
-                self.target + ".test",
+                self.dataframe_out + ".train",
+                self.dataframe_out + ".val",
+                self.dataframe_out + ".test",
             ],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
-        state[self.target + ".train"] = obj.tab.train
-        state[self.target + ".val"] = obj.tab.val
-        state[self.target + ".test"] = obj.tab.test
+        state[self.dataframe_out + ".train"] = dataframe.tab.train
+        state[self.dataframe_out + ".val"] = dataframe.tab.val
+        state[self.dataframe_out + ".test"] = dataframe.tab.test

@@ -8,12 +8,12 @@ from ...core.state import State
 
 
 class BuildDataLoader(Step):
-    """Build dataloader from state."""
+    """Build dataloader from dataset in state."""
 
     def __init__(
         self,
-        source: str = "dataset",
-        target: str = "dataloader",
+        dataset_in: str = "dataset",
+        dataloader_out: str = "dataloader",
         batch_size: int = 32,
         shuffle: bool = False,
         num_workers: int = 0,
@@ -21,8 +21,8 @@ class BuildDataLoader(Step):
         drop_last: bool = False,
         name: Optional[str] = None,
     ) -> None:
-        self.source = source
-        self.target = target
+        self.dataset_in = dataset_in
+        self.dataloader_out = dataloader_out
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.num_workers = num_workers
@@ -30,23 +30,23 @@ class BuildDataLoader(Step):
         self.drop_last = drop_last
 
         super().__init__(
-            name=name or "build_dataset",
-            requires=[self.source],
-            provides=[self.target],
+            name=name or "build_dataloader",
+            requires=[self.dataset_in],
+            provides=[self.dataloader_out],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, Dataset, self.name)
+        dataset = state[self.dataset_in]
+        validate_instance(dataset, Dataset, self.name)
 
         from torch.utils.data import DataLoader
 
         dataloader = DataLoader(
-            obj,
+            dataset,
             batch_size=self.batch_size,
             shuffle=self.shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             drop_last=self.drop_last,
         )
-        state[self.target] = dataloader
+        state[self.dataloader_out] = dataloader

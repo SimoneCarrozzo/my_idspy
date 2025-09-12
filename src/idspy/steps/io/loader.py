@@ -14,15 +14,15 @@ class LoadData(Step):
 
     def __init__(
         self,
-        path: str | Path,
-        target: str = "data.root",
+        path_in: str | Path,
+        dataframe_out: str = "data.root",
         schema: Optional[Schema] = None,
         load_meta: bool = True,
         name: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
-        self.path: Path = Path(path)
-        self.target = target
+        self.path_in: Path = Path(path_in)
+        self.dataframe_out = dataframe_out
         self.schema = schema
         self.load_meta = load_meta
         self.kwargs = kwargs
@@ -30,14 +30,14 @@ class LoadData(Step):
         super().__init__(
             name=name or "load_data",
             requires=None,
-            provides=[self.target],
+            provides=[self.dataframe_out],
         )
 
     def run(self, state: State) -> None:
-        df: pd.DataFrame = DataFrameRepository.load(
-            base_path=self.path,
+        dataframe: pd.DataFrame = DataFrameRepository.load(
+            base_path=self.path_in,
             schema=self.schema,
             load_meta=self.load_meta,
             **self.kwargs,
         )
-        state[self.target] = df
+        state[self.dataframe_out] = dataframe

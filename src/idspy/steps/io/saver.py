@@ -14,35 +14,35 @@ class SaveData(Step):
 
     def __init__(
         self,
-        path: str | Path,
-        source: str = "data.root",
+        path_out: str | Path,
+        dataframe_in: str = "data.root",
         fmt: Optional[str] = None,
         file_name: Optional[str] = None,
         save_meta: bool = True,
         name: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
-        self.path: Path = Path(path)
-        self.source = source
+        self.path_out: Path = Path(path_out)
+        self.dataframe_in = dataframe_in
         self.fmt = fmt
-        self.file_name = file_name or Path(self.source).suffix.lstrip(".")
+        self.file_name = file_name or Path(self.dataframe_in).suffix.lstrip(".")
         self.save_meta = save_meta
         self.kwargs = kwargs
 
         super().__init__(
             name=name or "save_data",
-            requires=[self.source],
+            requires=[self.dataframe_in],
             provides=None,
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
         # Default save name from the tail of the state key (e.g., "data.root" -> "root"),
         DataFrameRepository.save(
-            obj,
-            self.path,
+            dataframe,
+            self.path_out,
             name=self.file_name,
             fmt=self.fmt,
             save_meta=self.save_meta,

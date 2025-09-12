@@ -13,47 +13,47 @@ from ...data.dataset import (
 
 
 class BuildDataset(Step):
-    """Build dataset from state."""
+    """Build dataset from dataframe in state."""
 
     def __init__(
         self,
-        source: str = "data.root",
-        target: str = "dataset",
+        dataframe_in: str = "data.root",
+        dataset_out: str = "dataset",
         name: Optional[str] = None,
     ) -> None:
-        self.source = source
-        self.target = target
+        self.dataframe_in = dataframe_in
+        self.dataset_out = dataset_out
 
         super().__init__(
             name=name or "build_dataset",
-            requires=[self.source],
-            provides=[self.target],
+            requires=[self.dataframe_in],
+            provides=[self.dataset_out],
         )
 
     def run(self, state: State) -> None:
-        obj = state[self.source]
-        validate_instance(obj, pd.DataFrame, self.name)
+        dataframe = state[self.dataframe_in]
+        validate_instance(dataframe, pd.DataFrame, self.name)
 
-        numerical_cols = obj.tab.schema.numerical
-        categorical_cols = obj.tab.schema.categorical
-        target_cols = obj.tab.schema.target
+        numerical_cols = dataframe.tab.schema.numerical
+        categorical_cols = dataframe.tab.schema.categorical
+        target_cols = dataframe.tab.schema.target
 
         if numerical_cols and categorical_cols:
-            ds = MixedTabularDataset(
-                obj,
+            dataset = MixedTabularDataset(
+                dataframe,
                 numerical_cols=numerical_cols,
                 categorical_cols=categorical_cols,
                 target_col=target_cols[0] if target_cols else None,
             )
         elif numerical_cols:
-            ds = NumericalTensorDataset(
-                obj,
+            dataset = NumericalTensorDataset(
+                dataframe,
                 feature_cols=numerical_cols,
                 target_col=target_cols[0] if target_cols else None,
             )
         elif categorical_cols:
-            ds = CategoricalTensorDataset(
-                obj,
+            dataset = CategoricalTensorDataset(
+                dataframe,
                 feature_cols=categorical_cols,
                 target_col=target_cols[0] if target_cols else None,
             )
@@ -62,4 +62,4 @@ class BuildDataset(Step):
                 f"{self.name}: no numerical or categorical columns defined in schema."
             )
 
-        state[self.target] = ds
+        state[self.dataset_out] = dataset
