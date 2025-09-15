@@ -1,19 +1,11 @@
-from typing import NamedTuple, Optional, Sequence, Tuple
+from typing import Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
 
-class TabularFeatures(NamedTuple):
-    numerical: torch.Tensor
-    categorical: torch.Tensor
-
-    def to(self, *args, **kwargs) -> "TabularFeatures":
-        return TabularFeatures(
-            self.numerical.to(*args, **kwargs),
-            self.categorical.to(*args, **kwargs),
-        )
+Sample = Mapping[str, torch.Tensor]
 
 
 class TensorDataset(Dataset):
@@ -38,10 +30,10 @@ class TensorDataset(Dataset):
     def __len__(self) -> int:
         return self.features.size(0)
 
-    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> Sample:
         features = self.features[index]
         target = self.target[index] if self.target is not None else features
-        return features, target
+        return {"features": features, "target": target}
 
 
 class NumericalTensorDataset(TensorDataset):
@@ -113,9 +105,12 @@ class MixedTabularDataset(Dataset):
     def __len__(self) -> int:
         return len(self.numerical_ds)
 
-    def __getitem__(self, index: int):
-        numerical_features, _ = self.numerical_ds[index]
-        categorical_features, _ = self.categorical_ds[index]
-        features = TabularFeatures(numerical_features, categorical_features)
+    def __getitem__(self, index: int) -> Sample:
+        numerical_sample = self.numerical_ds[index]
+        categorical_sample = self.categorical_ds[index]
+        features = {
+            "numerical": numerical_sample["features"],
+            "categorical": categorical_sample["features"],
+        }
         target = self.target[index] if self.target is not None else features
-        return features, target
+        return {"features": features, "target": target}

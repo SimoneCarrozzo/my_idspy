@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Callable
 
 from torch.utils.data import Dataset
 
@@ -19,6 +19,7 @@ class BuildDataLoader(Step):
         num_workers: int = 0,
         pin_memory: bool = False,
         drop_last: bool = False,
+        collate_fn: Optional[Callable] = None,
         name: Optional[str] = None,
     ) -> None:
         self.dataset_in = dataset_in
@@ -28,6 +29,7 @@ class BuildDataLoader(Step):
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.drop_last = drop_last
+        self.collate_fn = collate_fn
 
         super().__init__(
             name=name or "build_dataloader",
@@ -48,5 +50,6 @@ class BuildDataLoader(Step):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             drop_last=self.drop_last,
+            collate_fn=self.collate_fn,
         )
         state[self.dataloader_out] = dataloader
