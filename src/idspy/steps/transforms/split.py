@@ -133,7 +133,7 @@ class AssignSplitPartitions(Step):
         self.dataframe_out = dataframe_out
 
         super().__init__(
-            name=name or "finalize_splits",
+            name=name or "assign_split_partitions",
             requires=[self.dataframe_in],
             provides=[
                 self.dataframe_out + ".train",
