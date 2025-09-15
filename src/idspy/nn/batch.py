@@ -85,10 +85,7 @@ def ensure_batch(x: Batch | Mapping[str, Any]) -> Batch:
     if isinstance(x, Batch):
         return x
 
-    try:
-        return Batch(features=x["features"], target=x.get("target"))
-    except KeyError as e:
-        raise ValueError("Input mapping must contain at least 'features' key") from e
+    return Batch(features=x["features"], target=x.get("target"))
 
 
 def default_collate(samples: list[Mapping[str, Any]]) -> Batch:
