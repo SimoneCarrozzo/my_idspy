@@ -6,15 +6,19 @@ import torch
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.tensorboard import SummaryWriter
 
+from ...nn.models.base import BaseModel
+from ...nn.losses.base import BaseLoss
+from ...nn.batch import Batch, ensure_batch
+
 
 def run_epoch(
     desc: str,
     log_prefix: str,
     is_training: bool,
     dataloader: torch.utils.data.DataLoader,
-    model: torch.nn.Module,
+    model: BaseModel,
     device: torch.device,
-    loss_fn: Optional[torch.nn.Module] = None,
+    loss_fn: Optional[BaseLoss] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     writer: Optional[SummaryWriter] = None,
     profiler: Optional[torch.profiler.profile] = None,
@@ -28,20 +32,18 @@ def run_epoch(
 
     with torch.set_grad_enabled(is_training):
         for idx, batch in enumerate(pbar, start=1):
-            inputs, targets = batch
-            inputs = inputs.to(device, non_blocking=True)
-            targets = (
-                targets.to(device, non_blocking=True) if targets is not None else None
-            )
+            batch: Batch = ensure_batch(batch)
+            batch = batch.to(device, non_blocking=True)
 
             if is_training:
                 optimizer.zero_grad(set_to_none=True)
 
-            outputs = model(inputs)
+            outputs = model(batch.features)
             outputs_list.append(outputs)
+
             loss = (
-                loss_fn(outputs, targets)
-                if (loss_fn is not None and targets is not None)
+                loss_fn(**model.loss_inputs(outputs, batch.target))
+                if (loss_fn is not None and batch.target is not None)
                 else None
             )
             loss_value = float(loss.item()) if loss is not None else 0.0

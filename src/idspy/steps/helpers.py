@@ -1,6 +1,4 @@
-from typing import Any, Tuple, Type, Optional, List
-
-import pandas as pd
+from typing import Any, Tuple, Type
 
 
 def validate_instance(

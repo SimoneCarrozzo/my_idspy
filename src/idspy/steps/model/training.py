@@ -6,6 +6,8 @@ from torch.utils.tensorboard import SummaryWriter
 from ..helpers import validate_instance
 from ...core.step import Step
 from ...core.state import State
+from ...nn.models.base import BaseModel
+from ...nn.losses.base import BaseLoss
 from .helpers import run_epoch
 
 
@@ -72,8 +74,8 @@ class TrainOneEpoch(Step):
         profiler = state[self.profiler_in] if self.profiler_in is not None else None
 
         validate_instance(dataloader, torch.utils.data.DataLoader, self.name)
-        validate_instance(model, torch.nn.Module, self.name)
-        validate_instance(loss_function, torch.nn.Module, self.name)
+        validate_instance(model, BaseModel, self.name)
+        validate_instance(loss_function, BaseLoss, self.name)
         validate_instance(optimizer, torch.optim.Optimizer, self.name)
         validate_instance(device, torch.device, self.name)
         if profiler is not None:

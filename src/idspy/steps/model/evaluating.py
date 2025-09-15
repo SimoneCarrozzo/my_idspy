@@ -6,6 +6,9 @@ from torch.utils.tensorboard import SummaryWriter
 from ..helpers import validate_instance
 from ...core.state import State
 from ...core.step import Step
+from ...nn.models.base import BaseModel
+from ...nn.losses.base import BaseLoss
+from ...nn.batch import ensure_batch
 from .helpers import run_epoch
 
 
@@ -60,8 +63,8 @@ class ValidateOneEpoch(Step):
         profiler = state[self.profiler_in] if self.profiler_in is not None else None
 
         validate_instance(dataloader, torch.utils.data.DataLoader, self.name)
-        validate_instance(model, torch.nn.Module, self.name)
-        validate_instance(loss_function, torch.nn.Module, self.name)
+        validate_instance(model, BaseModel, self.name)
+        validate_instance(loss_function, BaseLoss, self.name)
         validate_instance(device, torch.device, self.name)
         if profiler is not None:
             validate_instance(profiler, torch.profiler.profile, self.name)
@@ -93,21 +96,21 @@ class ForwardOnce(Step):
 
     def __init__(
         self,
-        tensor_in: str = "forward.input",
+        batch_in: str = "forward.input",
         model_in: str = "model",
         device_in: str = "device",
-        tensor_out: str = "forward.output",
+        batch_out: str = "forward.output",
         to_cpu: bool = False,  # move output to CPU before storing
         name: Optional[str] = None,
     ) -> None:
-        self.tensor_in = tensor_in
+        self.batch_in = batch_in
         self.model_in = model_in
         self.device_in = device_in
-        self.tensor_out = tensor_out
+        self.batch_out = batch_out
         self.to_cpu = to_cpu
 
-        requires = [self.tensor_in, self.model_in, self.device_in]
-        provides = [self.tensor_out]
+        requires = [self.batch_in, self.model_in, self.device_in]
+        provides = [self.batch_out]
 
         super().__init__(
             requires=requires,
@@ -116,20 +119,21 @@ class ForwardOnce(Step):
         )
 
     def run(self, state: State) -> None:
-        input_tensor = state[self.tensor_in]
+        batch = state[self.batch_in]
         model = state[self.model_in]
         device = state[self.device_in]
 
-        validate_instance(model, torch.nn.Module, self.name)
+        batch = ensure_batch(batch)
+        validate_instance(model, BaseModel, self.name)
         validate_instance(device, torch.device, self.name)
 
         model.eval()
-        input_tensor = input_tensor.to(device, non_blocking=True)
+        batch = batch.to(device, non_blocking=True)
 
         with torch.no_grad():
-            output_tensor = model(input_tensor)
+            out = model(batch.features)
 
-        if self.to_cpu and torch.is_tensor(output_tensor):
-            output_tensor = output_tensor.detach().cpu()
+        if self.to_cpu and torch.is_tensor(out):
+            out = out.detach().cpu()
 
-        state[self.tensor_out] = output_tensor
+        state[self.batch_out] = out
