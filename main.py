@@ -1,18 +1,23 @@
 import logging
 
-import numpy as np
+import torch
 
+from src.idspy.common.logging import setup_logging
+from src.idspy.common.seeds import set_seeds
 
+from src.idspy.core.state import State
 from src.idspy.core.pipeline import (
     FitAwareObservablePipeline,
     ObservablePipeline,
     PipelineEvent,
 )
-from src.idspy.common.logging import setup_logging
-from src.idspy.core.state import State
+
 from src.idspy.data.schema import Schema, ColumnRole
+from src.idspy.data.tab_accessor import TabAccessor
+
 from src.idspy.events.bus import EventBus
 from src.idspy.events.handlers.logging import Logger, DataFrameProfiler
+
 from src.idspy.steps.io.saver import SaveData
 from src.idspy.steps.io.loader import LoadData
 from src.idspy.steps.builders.dataloader import BuildDataLoader
@@ -21,12 +26,17 @@ from src.idspy.steps.transforms.adjust import DropNulls
 from src.idspy.steps.transforms.map import FrequencyMap, LabelMap
 from src.idspy.steps.transforms.scale import StandardScale
 from src.idspy.steps.transforms.split import AssignSplitPartitions, StratifiedSplit
-from src.idspy.data.tab_accessor import TabAccessor
+from src.idspy.steps.model.training import TrainOneEpoch
+
+from src.idspy.nn.batch import default_collate, Batch
+from src.idspy.nn.helpers import get_device
+from src.idspy.nn.models.classifier import TabularClassifier
+from src.idspy.nn.losses.classification import ClassificationLoss
 
 
 setup_logging()
 logger = logging.getLogger(__name__)
-rng = np.random.default_rng(42)
+set_seeds(42)
 
 
 def main():
@@ -86,12 +96,12 @@ def main():
     bus = EventBus()
     bus.subscribe(callback=Logger(), event_type=PipelineEvent.BEFORE_STEP)
     # bus.subscribe(callback=Tracer())
-    bus.subscribe(callback=DataFrameProfiler(), event_type=PipelineEvent.AFTER_STEP)
+    # bus.subscribe(callback=DataFrameProfiler(), event_type=PipelineEvent.AFTER_STEP)
 
     fit_aware_pipeline = FitAwareObservablePipeline(
         steps=[
             StandardScale(),
-            FrequencyMap(max_levels=3),
+            FrequencyMap(max_levels=20),
             LabelMap(),
         ],
         bus=bus,
@@ -103,13 +113,12 @@ def main():
             LoadData(
                 path_in="resources/data/dataset_v2/cic_2018_v2.csv",
                 schema=schema,
-                nrows=1000000,
             ),
             DropNulls(),
             # DownsampleToMinority(class_column=schema.columns(ColumnRole.TARGET)[0]),
             StratifiedSplit(class_column=schema.columns(ColumnRole.TARGET)[0]),
             fit_aware_pipeline,
-            # SaveData(path_out="resources/data/processed/cic_2018_v2", fmt="parquet"),
+            SaveData(path_out="resources/data/processed/cic_2018_v2", fmt="parquet"),
         ],
         bus=bus,
         name="preprocessing_pipeline",
@@ -117,21 +126,36 @@ def main():
 
     training_pipeline = ObservablePipeline(
         steps=[
+            LoadData(path_in="resources/data/processed/cic_2018_v2/root.parquet"),
             AssignSplitPartitions(),
-            BuildDataset(dataframe_in="data.train", dataset_out="dataset.train"),
+            BuildDataset(dataframe_in="data.train", dataset_out="train.dataset"),
             BuildDataLoader(
-                dataset_in="dataset.train",
-                dataloader_out="dataloader.train",
-                batch_size=64,
+                dataset_in="train.dataset",
+                dataloader_out="train.dataloader",
+                batch_size=256,
                 shuffle=True,
+                collate_fn=default_collate,
             ),
+            TrainOneEpoch(),
         ],
         bus=bus,
         name="training_pipeline",
     )
 
     state = State()
-    preprocessing_pipeline.run(state)
+    state["device"] = get_device()
+
+    state["model"] = TabularClassifier(
+        num_features=len(schema.numerical),
+        cat_cardinalities=[20] * len(schema.categorical),
+        num_classes=15,
+        hidden_dims=[128, 64],
+        dropout=0.1,
+    ).to(state["device"])
+    state["loss"] = ClassificationLoss().to(state["device"])
+    state["optimizer"] = torch.optim.Adam(state["model"].parameters(), lr=0.001)
+
+    # preprocessing_pipeline.run(state)
     training_pipeline.run(state)
 
 
