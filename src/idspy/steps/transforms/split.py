@@ -137,8 +137,11 @@ class AssignSplitPartitions(Step):
             requires=[self.dataframe_in],
             provides=[
                 self.dataframe_out + ".train",
+                self.dataframe_out + ".train.target",
                 self.dataframe_out + ".val",
+                self.dataframe_out + ".val.target",
                 self.dataframe_out + ".test",
+                self.dataframe_out + ".test.target",
             ],
         )
 
@@ -147,5 +150,12 @@ class AssignSplitPartitions(Step):
         validate_instance(dataframe, pd.DataFrame, self.name)
 
         state[self.dataframe_out + ".train"] = dataframe.tab.train
+        state[self.dataframe_out + ".train.target"] = (
+            dataframe.tab.train.tab.target.values
+        )
         state[self.dataframe_out + ".val"] = dataframe.tab.val
+        state[self.dataframe_out + ".val.target"] = dataframe.tab.val.tab.target.values
         state[self.dataframe_out + ".test"] = dataframe.tab.test
+        state[self.dataframe_out + ".test.target"] = (
+            dataframe.tab.test.tab.target.values
+        )
