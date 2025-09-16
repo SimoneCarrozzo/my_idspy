@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -22,7 +22,7 @@ class ValidateOneEpoch(Step):
         loss_in: str = "loss",
         device_in: str = "device",
         profiler_in: Optional[str] = None,
-        metrics_out: Optional[str] = "val.history",
+        history_out: Optional[str] = "history.val",
         log_dir: Optional[str] = None,
         log_prefix: str = "Val",
         name: Optional[str] = None,
@@ -32,7 +32,7 @@ class ValidateOneEpoch(Step):
         self.loss_in = loss_in
         self.device_in = device_in
         self.profiler_in = profiler_in
-        self.metrics_out = metrics_out
+        self.history_out = history_out
         self.writer: Optional[SummaryWriter] = (
             SummaryWriter(log_dir) if log_dir else None
         )
@@ -47,7 +47,11 @@ class ValidateOneEpoch(Step):
         if self.profiler_in is not None:
             requires.append(self.profiler_in)
 
-        provides = [self.metrics_out] if self.metrics_out is not None else []
+        provides = (
+            [self.history_out + ".outputs", self.history_out + ".loss"]
+            if self.history_out is not None
+            else []
+        )
 
         super().__init__(
             requires=requires,
@@ -69,6 +73,10 @@ class ValidateOneEpoch(Step):
         if profiler is not None:
             validate_instance(profiler, torch.profiler.profile, self.name)
 
+        if self.history_out is not None:
+            state[self.history_out + ".loss"] = []
+            state[self.history_out + ".outputs"] = []
+
         average_loss, outputs_list = run_epoch(
             desc="Validation",
             log_prefix=self.log_prefix,
@@ -83,12 +91,12 @@ class ValidateOneEpoch(Step):
             clip_grad_max_norm=None,
         )
 
-        state.get_or_create(self.metrics_out, []).append(
-            {
-                "loss": average_loss,
-                "outputs": outputs_list,
-            }
-        )
+        if self.writer is not None:
+            self.writer.close()
+
+        if self.history_out is not None:
+            state[self.history_out + ".loss"] = average_loss
+            state[self.history_out + ".outputs"] = outputs_list
 
 
 class ForwardOnce(Step):
@@ -137,3 +145,43 @@ class ForwardOnce(Step):
             out = out.detach().cpu()
 
         state[self.batch_out] = out
+
+
+class MakePredictions(Step):
+    """Make predictions from model outputs."""
+
+    def __init__(
+        self,
+        pred_fn: Callable,
+        outputs_in: str = "history.val.outputs",
+        outputs_key: str = "logits",
+        pred_out: str = "history.val.preds",
+        name: Optional[str] = None,
+    ) -> None:
+        self.outputs_in = outputs_in
+        self.pred_out = pred_out
+        self.pred_fn = pred_fn
+        self.outputs_key = outputs_key
+
+        super().__init__(
+            requires=[self.outputs_in],
+            provides=[self.pred_out],
+            name=name or "make_predictions",
+        )
+
+    def run(self, state: State) -> None:
+        outputs = state[self.outputs_in]
+        validate_instance(outputs, list, self.name)
+
+        predictions = []
+        for output in outputs:
+            output = output[self.outputs_key]
+            curr_pred = self.pred_fn(output)
+            if not torch.is_tensor(curr_pred):
+                raise TypeError(
+                    f"Expected tensor predictions from 'pred_fn' for step '{self.name}'."
+                )
+            predictions.append(curr_pred)
+        predictions = torch.cat(predictions, dim=0)
+
+        state[self.pred_out] = predictions.detach().cpu().numpy()

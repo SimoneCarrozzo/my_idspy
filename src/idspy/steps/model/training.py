@@ -22,7 +22,7 @@ class TrainOneEpoch(Step):
         optimizer_in: str = "optimizer",
         device_in: str = "device",
         profiler_in: Optional[str] = None,
-        metrics_out: Optional[str] = "train.history",
+        history_out: Optional[str] = None,
         model_out: Optional[str] = None,
         log_dir: Optional[str] = None,
         log_prefix: str = "Train",
@@ -35,7 +35,7 @@ class TrainOneEpoch(Step):
         self.optimizer_in = optimizer_in
         self.device_in = device_in
         self.profiler_in = profiler_in
-        self.metrics_out = metrics_out
+        self.history_out = history_out
         self.model_out = model_out or model_in
         self.writer: Optional[SummaryWriter] = (
             SummaryWriter(log_dir) if log_dir else None
@@ -54,8 +54,8 @@ class TrainOneEpoch(Step):
             requires.append(self.profiler_in)
 
         provides = (
-            [self.model_out, self.metrics_out]
-            if self.metrics_out is not None
+            [self.model_out, self.history_out + ".outputs", self.history_out + ".loss"]
+            if self.history_out is not None
             else [self.model_out]
         )
 
@@ -81,6 +81,10 @@ class TrainOneEpoch(Step):
         if profiler is not None:
             validate_instance(profiler, torch.profiler.profile, self.name)
 
+        if self.history_out is not None:
+            state[self.history_out + ".loss"] = []
+            state[self.history_out + ".outputs"] = []
+
         average_loss, outputs_list = run_epoch(
             desc="Training",
             log_prefix=self.log_prefix,
@@ -95,10 +99,10 @@ class TrainOneEpoch(Step):
             clip_grad_max_norm=self.clip_grad_max_norm,
         )
 
+        if self.writer is not None:
+            self.writer.close()
+
         state[self.model_out] = model
-        state.get_or_create(self.metrics_out, []).append(
-            {
-                "loss": average_loss,
-                "outputs": outputs_list,
-            }
-        )
+        if self.history_out is not None:
+            state[self.history_out + ".loss"] = average_loss
+            state[self.history_out + ".outputs"] = outputs_list

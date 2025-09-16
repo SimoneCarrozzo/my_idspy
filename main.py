@@ -27,11 +27,13 @@ from src.idspy.steps.transforms.map import FrequencyMap, LabelMap
 from src.idspy.steps.transforms.scale import StandardScale
 from src.idspy.steps.transforms.split import AssignSplitPartitions, StratifiedSplit
 from src.idspy.steps.model.training import TrainOneEpoch
+from src.idspy.steps.model.evaluating import ValidateOneEpoch, MakePredictions
 
 from src.idspy.nn.batch import default_collate, Batch
 from src.idspy.nn.helpers import get_device
 from src.idspy.nn.models.classifier import TabularClassifier
 from src.idspy.nn.losses.classification import ClassificationLoss
+from idspy.nn.metrics.classification import ClassificationMetrics
 
 
 setup_logging()
@@ -132,11 +134,22 @@ def main():
             BuildDataLoader(
                 dataset_in="train.dataset",
                 dataloader_out="train.dataloader",
-                batch_size=256,
+                batch_size=1024,
                 shuffle=True,
                 collate_fn=default_collate,
             ),
+            BuildDataset(dataframe_in="data.val", dataset_out="val.dataset"),
+            BuildDataLoader(
+                dataset_in="val.dataset",
+                dataloader_out="val.dataloader",
+                batch_size=1024,
+                shuffle=False,
+                collate_fn=default_collate,
+            ),
             TrainOneEpoch(),
+            ValidateOneEpoch(),
+            MakePredictions(pred_fn=lambda x: torch.argmax(x, dim=1)),
+            ClassificationMetrics(),
         ],
         bus=bus,
         name="training_pipeline",
@@ -157,6 +170,7 @@ def main():
 
     # preprocessing_pipeline.run(state)
     training_pipeline.run(state)
+    print(state["history.val.metrics"])
 
 
 if __name__ == "__main__":
