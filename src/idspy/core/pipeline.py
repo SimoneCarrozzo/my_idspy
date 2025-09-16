@@ -90,16 +90,12 @@ class Pipeline(Step):
     def __init__(
         self,
         steps: Sequence[Step],
-        name: Optional[str] = None,
-        requires: Optional[Iterable[str]] = None,
-        provides: Optional[Iterable[str]] = None,
+        **kwargs: Any,
     ) -> None:
-        super().__init__(name=name, requires=requires, provides=provides)
+        super().__init__(**kwargs)
         self.steps: List[Step] = list(steps)
         self._hook_registry = HookRegistry()
         self._register_decorated_hooks()
-
-    # --- hooks registration ---
 
     def _register_decorated_hooks(self) -> None:
         """Efficiently register all decorated hooks from class hierarchy."""
@@ -135,16 +131,14 @@ class Pipeline(Step):
         for hook_func in self._hook_registry.get_hooks(key):
             hook_func(*args, **kwargs)
 
-    # --- Step API ---
-
-    def run(self, state: State) -> None:
+    def run(self, state: State, **kwargs) -> None:
         """Execute sub-steps sequentially and emit events."""
         self._fire(PipelineEvent.PIPELINE_START, state)
         try:
             for idx, step in enumerate(self.steps):
                 self._fire(PipelineEvent.BEFORE_STEP, step, state, index=idx)
                 try:
-                    step(state)  # __call__: respects Step validations
+                    step(state, **kwargs)  # __call__: respects Step validations
                 except Exception as e:
                     self._fire(PipelineEvent.ON_ERROR, state, e, step=step, index=idx)
                     raise
@@ -152,8 +146,6 @@ class Pipeline(Step):
                     self._fire(PipelineEvent.AFTER_STEP, step, state, index=idx)
         finally:
             self._fire(PipelineEvent.PIPELINE_END, state)
-
-    # --- convenience ---
 
     def add_step(self, step: Step) -> None:
         """Append a sub-step."""
@@ -165,7 +157,7 @@ class Pipeline(Step):
 
     def __repr__(self) -> str:
         names = [s.name for s in self.steps]
-        return f"{self.__class__.__name__}(steps={names!r}, requires={len(self.requires)}, provides={len(self.provides)})"
+        return f"{self.__class__.__name__}(steps={names!r}, precon={len(self.precon)}, postcon={len(self.postcon)})"
 
 
 class ObservablePipeline(Pipeline):
@@ -204,8 +196,8 @@ class ObservablePipeline(Pipeline):
                 self._label(step),
                 payload={
                     "index": index,
-                    "requires": list(step.requires),
-                    "provides": list(step.provides),
+                    "precon": list(step.precon.keys()),
+                    "postcon": list(step.postcon.keys()),
                 },
                 state=self._ctx(state),
             )
@@ -219,8 +211,8 @@ class ObservablePipeline(Pipeline):
                 self._label(step),
                 payload={
                     "index": index,
-                    "requires": list(step.requires),
-                    "provides": list(step.provides),
+                    "precon": list(step.precon.keys()),
+                    "postcon": list(step.postcon.keys()),
                 },
                 state=self._ctx(state),
             )

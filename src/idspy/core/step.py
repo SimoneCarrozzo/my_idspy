@@ -1,7 +1,27 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, Optional, Set, Any, override, Callable
+from typing import Dict, Iterable, Optional, Any, Tuple, override
+from dataclasses import dataclass
 
 from .state import State, StatePredicate
+
+
+@dataclass
+class TypeConstraint:
+    """Constraint that a state key must have a specific type."""
+
+    key: str
+    expected_type: type
+
+    def check(self, state: State) -> bool:
+        """Check if the constraint is satisfied."""
+        return state.check_type(self.key, self.expected_type)
+
+    def get_value(self, state: State) -> Any:
+        """Get the value, ensuring it has the correct type."""
+        return state.get_typed(self.key, self.expected_type)
+
+
+Constraints = Dict[str, TypeConstraint]
 
 
 class Step(ABC):
@@ -10,38 +30,50 @@ class Step(ABC):
     def __init__(
         self,
         name: Optional[str] = None,
-        requires: Optional[Iterable[str]] = None,
-        provides: Optional[Iterable[str]] = None,
+        precon: Optional[Constraints] = None,
+        postcon: Optional[Constraints] = None,
     ) -> None:
         self.name: str = name or self.__class__.__name__
-        self.requires: Set[str] = set(requires or [])
-        self.provides: Set[str] = set(provides or [])
+        self.precon = precon or {}
+        self.postcon = postcon or {}
 
-    def check(self, state: State, constraints: Iterable[str]) -> None:
-        """Raise if constraints keys are missing."""
-        missing = [k for k in constraints if k not in state]
+    def check_constraints(self, state: State, constraints: Constraints) -> None:
+        """Raise if constraints are not satisfied."""
+        missing = [
+            name
+            for name, constraint in constraints.items()
+            if not constraint.check(state)
+        ]
+
         if missing:
-            raise KeyError(f"{self.name}: missing {missing}")
+            raise KeyError(f"{self.name}: constraints not satisfied: {missing}")
+
+    def get_inputs(self, state: State) -> Dict[str, Any]:
+        """Extract and validate required inputs from state."""
+        inputs = {}
+        for name, constraint in self.precon.items():
+            inputs[name] = constraint.get_value(state)
+        return inputs
 
     @abstractmethod
-    def run(self, state: State) -> None:
+    def run(self, state: State, **kwargs) -> None:
         """Mutate state and/or call services."""
         ...
 
-    def __call__(self, state: State) -> None:
-        """Validate inputs, run, validate outputs."""
-        self.check(state, self.requires)
-        self.run(state)
-        self.check(state, self.provides)
+    def __call__(self, state: State, **kwargs) -> None:
+        """Check preconditions, run, validate postconditions."""
+        self.check_constraints(state, self.precon)
+        self.run(state, **kwargs)
+        self.check_constraints(state, self.postcon)
 
-    def execute(self, state: State) -> None:
+    def execute(self, state: State, **kwargs) -> None:
         """Alias for __call__."""
-        self(state)
+        self(state, **kwargs)
 
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}"
-            f"(name={self.name!r}, requires={len(self.requires)}, provides={len(self.provides)}"
+            f"(name={self.name!r}, precon={len(self.precon)}, postcon={len(self.postcon)})"
         )
 
 
@@ -58,11 +90,11 @@ class ConditionalStep(Step, ABC):
         pass
 
     @override
-    def __call__(self, state: State) -> None:
+    def __call__(self, state: State, **kwargs) -> None:
         if not self.should_run(state):
             self.on_skip(state)
             return
-        super().__call__(state)
+        super().__call__(state, **kwargs)
 
 
 class FitAwareStep(Step, ABC):
@@ -71,15 +103,15 @@ class FitAwareStep(Step, ABC):
     def __init__(
         self,
         name: Optional[str] = None,
-        requires: Optional[Iterable[str]] = None,
-        provides: Optional[Iterable[str]] = None,
+        precon: Optional[Constraints] = None,
+        postcon: Optional[Constraints] = None,
     ) -> None:
         self._is_fitted: bool = False
 
         super().__init__(
             name=name,
-            requires=requires,
-            provides=provides,
+            precon=precon,
+            postcon=postcon,
         )
 
     @property
@@ -94,14 +126,14 @@ class FitAwareStep(Step, ABC):
 
     def fit(self, state: State) -> None:
         """Validate inputs and fit."""
-        self.check(state, self.requires)
+        self.check_constraints(state, self.precon)
         self.fit_impl(state)
         self._is_fitted = True
 
-    def __call__(self, state: State) -> None:
+    def __call__(self, state: State, **kwargs) -> None:
         if not self._is_fitted:
             raise RuntimeError(f"{self.name!r} is not fitted.")
-        super().__call__(state)
+        super().__call__(state, **kwargs)
 
     def __repr__(self) -> str:
         base = super().__repr__().rstrip(")")
@@ -128,13 +160,13 @@ class Repeat(Step):
 
         super().__init__(
             name=name or f"repeated({step.name})",
-            requires=set(step.requires),
-            provides=set(step.provides),
+            precon=step.precon,
+            postcon=step.postcon,
         )
 
-    def run(self, state: State) -> None:
+    def run(self, state: State, **kwargs) -> None:
         for _ in range(self.count):
-            self.step(state)
+            self.step(state, **kwargs)
 
             if self.predicate and self.predicate(state):
                 break
@@ -150,16 +182,14 @@ class ContextualStep(Step, ABC):
     def __init__(
         self,
         step: Step,
-        target: str = "context",
         name: Optional[str] = None,
     ) -> None:
         self.step = step
-        self.target = target
 
         super().__init__(
             name=name or f"contextual({step.name})",
-            requires=set(step.requires),
-            provides=set(step.provides + [self.target]),
+            precon=step.precon,
+            postcon=step.postcon,
         )
 
     @abstractmethod
@@ -167,10 +197,11 @@ class ContextualStep(Step, ABC):
         """Return a context manager."""
         ...
 
-    def run(self, state: State) -> None:
+    def run(self, state: State, **kwargs) -> None:
         with self.context(state) as ctx:
-            state[self.target] = ctx
-            self.step(state)
+            # Pass context directly as kwarg to the inner step
+            kwargs["context"] = ctx
+            self.step(state, **kwargs)
 
     def __repr__(self) -> str:
         base = super().__repr__().rstrip(")")
