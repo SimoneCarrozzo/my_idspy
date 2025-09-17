@@ -1,14 +1,11 @@
-from collections import defaultdict
 from enum import Enum
 from typing import (
     Sequence,
     Optional,
-    Iterable,
     List,
     Any,
     Callable,
     Dict,
-    Tuple,
     Union,
     Mapping,
 )
@@ -24,68 +21,29 @@ class PipelineEvent(str, Enum):
 
     PIPELINE_START = "pipeline_start"
     PIPELINE_END = "pipeline_end"
-    BEFORE_STEP = "before_step"  # args: (step, state, index=int)
-    AFTER_STEP = "after_step"  # args: (step, state, index=int)
-    ON_ERROR = "on_error"  # args: (state, exc, step=..., index=int)
+    BEFORE_STEP = "before_step"
+    AFTER_STEP = "after_step"
+    ON_ERROR = "on_error"
 
 
 EventKey = Union[str, PipelineEvent]
 HookFunc = Callable[..., None]
 
 
-class HookRegistry:
-    """Efficient hook registry with lazy sorting and caching."""
-
-    def __init__(self):
-        self._hooks: Dict[str, List[Tuple[int, HookFunc]]] = defaultdict(list)
-        self._sorted_cache: Dict[str, List[HookFunc]] = {}
-
-    def add(self, event: str, func: HookFunc, priority: int = 0) -> None:
-        """Add a hook with priority."""
-        self._hooks[event].append((priority, func))
-        # Invalidate cache for this event
-        self._sorted_cache.pop(event, None)
-
-    def remove(self, event: str, func: HookFunc) -> None:
-        """Remove a hook."""
-        if event in self._hooks:
-            self._hooks[event] = [
-                (p, f) for p, f in self._hooks[event] if f is not func
-            ]
-            if not self._hooks[event]:
-                del self._hooks[event]
-            self._sorted_cache.pop(event, None)
-
-    def get_hooks(self, event: str) -> List[HookFunc]:
-        """Get sorted hooks for event (cached)."""
-        if event not in self._sorted_cache:
-            hooks = self._hooks.get(event, [])
-            # Sort by priority (lower first) and cache result
-            self._sorted_cache[event] = [
-                func for _, func in sorted(hooks, key=lambda x: x[0])
-            ]
-        return self._sorted_cache[event]
-
-
-def _normalize_event_key(event: EventKey) -> str:
-    return event.value if isinstance(event, PipelineEvent) else str(event)
-
-
-def hook(event: EventKey, *, priority: int = 0) -> Callable[[HookFunc], HookFunc]:
-    """Decorator to mark a method as a hook for `event` with priority (lower runs first)."""
-
-    def decorator(func: HookFunc) -> HookFunc:
-        # Store hook metadata directly on function
-        if not hasattr(func, "_hook_events"):
-            func._hook_events = []
-        func._hook_events.append((_normalize_event_key(event), priority))
-        return func
-
-    return decorator
-
-
 class Pipeline(Step):
     """Step that runs a sequence of sub-steps with hook support."""
+
+    @staticmethod
+    def hook(event: PipelineEvent, priority: int = 0):
+        """Decorator to register a method as a hook for an event."""
+
+        def decorator(func: HookFunc) -> HookFunc:
+            if not hasattr(func, "_pipeline_hooks"):
+                func._pipeline_hooks = []
+            func._pipeline_hooks.append((event.value, priority))
+            return func
+
+        return decorator
 
     def __init__(
         self,
@@ -94,56 +52,45 @@ class Pipeline(Step):
     ) -> None:
         super().__init__(**kwargs)
         self.steps: List[Step] = list(steps)
-        self._hook_registry = HookRegistry()
-        self._register_decorated_hooks()
 
-    def _register_decorated_hooks(self) -> None:
-        """Efficiently register all decorated hooks from class hierarchy."""
-        # Use a set to avoid duplicate registration
-        seen_methods = set()
+        # Get hooks from decorators
+        self._hooks = {}
+        for name in dir(self):
+            method = getattr(self, name)
+            if callable(method) and hasattr(method, "_pipeline_hooks"):
+                for event, priority in method._pipeline_hooks:
+                    if event not in self._hooks:
+                        self._hooks[event] = []
+                    self._hooks[event].append((priority, method))
 
-        for cls in reversed(self.__class__.mro()):  # Start from base classes
-            for name, method in cls.__dict__.items():
-                if (
-                    name not in seen_methods
-                    and callable(method)
-                    and hasattr(method, "_hook_events")
-                ):
+        # Sort hooks by priority
+        for event in self._hooks:
+            self._hooks[event].sort(key=lambda x: x[0])
 
-                    bound_method = getattr(self, name)
-                    for event, priority in method._hook_events:
-                        self._hook_registry.add(event, bound_method, priority)
-                    seen_methods.add(name)
-
-    def add_hook(self, event: EventKey, func: HookFunc, *, priority: int = 0) -> None:
-        """Register a runtime hook."""
-        key = _normalize_event_key(event)
-        self._hook_registry.add(key, func, priority)
-
-    def remove_hook(self, event: EventKey, func: HookFunc) -> None:
-        """Remove a runtime hook."""
-        key = _normalize_event_key(event)
-        self._hook_registry.remove(key, func)
-
-    def _fire(self, event: EventKey, *args: Any, **kwargs: Any) -> None:
-        """Invoke hooks for `event` in priority order."""
-        key = _normalize_event_key(event)
-        for hook_func in self._hook_registry.get_hooks(key):
+    def _fire(self, event: PipelineEvent, *args: Any, **kwargs: Any) -> None:
+        """Call all hooks for an event in priority order."""
+        hook_list = self._hooks.get(event.value, [])
+        for priority, hook_func in hook_list:
             hook_func(*args, **kwargs)
 
-    def run(self, state: State, **kwargs) -> None:
+    def run(self, **inputs) -> Optional[Dict[str, Any]]:
+        """Execute sub-steps sequentially and emit events."""
+        # Pipeline doesn't return outputs directly - sub-steps mutate state through __call__
+        return None
+
+    def __call__(self, state: State, **kwargs) -> None:
         """Execute sub-steps sequentially and emit events."""
         self._fire(PipelineEvent.PIPELINE_START, state)
         try:
             for idx, step in enumerate(self.steps):
-                self._fire(PipelineEvent.BEFORE_STEP, step, state, index=idx)
+                self._fire(PipelineEvent.BEFORE_STEP, step, state, idx)
                 try:
-                    step(state, **kwargs)  # __call__: respects Step validations
+                    step(state, **kwargs)
                 except Exception as e:
-                    self._fire(PipelineEvent.ON_ERROR, state, e, step=step, index=idx)
+                    self._fire(PipelineEvent.ON_ERROR, state, e, step, idx)
                     raise
                 else:
-                    self._fire(PipelineEvent.AFTER_STEP, step, state, index=idx)
+                    self._fire(PipelineEvent.AFTER_STEP, step, state, idx)
         finally:
             self._fire(PipelineEvent.PIPELINE_END, state)
 
@@ -157,7 +104,7 @@ class Pipeline(Step):
 
     def __repr__(self) -> str:
         names = [s.name for s in self.steps]
-        return f"{self.__class__.__name__}(steps={names!r}, precon={len(self.precon)}, postcon={len(self.postcon)})"
+        return f"{self.__class__.__name__}(steps={names!r}, precon={len(self.requires)}, postcon={len(self.provides)})"
 
 
 class ObservablePipeline(Pipeline):
@@ -176,55 +123,55 @@ class ObservablePipeline(Pipeline):
     def _label(self, step: Optional[Step]) -> str:
         return f"{self.name}.{step.name}" if step is not None else self.name
 
-    @hook(PipelineEvent.PIPELINE_START)
+    @Pipeline.hook(PipelineEvent.PIPELINE_START)
     def start(self, state: State) -> None:
         self.bus.publish(
             Event(PipelineEvent.PIPELINE_START, self.name, state=self._ctx(state))
         )
 
-    @hook(PipelineEvent.PIPELINE_END)
+    @Pipeline.hook(PipelineEvent.PIPELINE_END)
     def end(self, state: State) -> None:
         self.bus.publish(
             Event(PipelineEvent.PIPELINE_END, self.name, state=self._ctx(state))
         )
 
-    @hook(PipelineEvent.BEFORE_STEP)
-    def before_step(self, step: Step, state: State, *, index: int) -> None:
+    @Pipeline.hook(PipelineEvent.BEFORE_STEP)
+    def before_step(self, step: Step, state: State, index: int) -> None:
         self.bus.publish(
             Event(
                 PipelineEvent.BEFORE_STEP,
                 self._label(step),
-                payload={
+                constraints={
                     "index": index,
-                    "precon": list(step.precon.keys()),
-                    "postcon": list(step.postcon.keys()),
+                    "requires": list(step.requires.keys()),
+                    "provides": list(step.provides.keys()),
                 },
                 state=self._ctx(state),
             )
         )
 
-    @hook(PipelineEvent.AFTER_STEP)
-    def after_step(self, step: Step, state: State, *, index: int) -> None:
+    @Pipeline.hook(PipelineEvent.AFTER_STEP)
+    def after_step(self, step: Step, state: State, index: int) -> None:
         self.bus.publish(
             Event(
                 PipelineEvent.AFTER_STEP,
                 self._label(step),
-                payload={
+                constraints={
                     "index": index,
-                    "precon": list(step.precon.keys()),
-                    "postcon": list(step.postcon.keys()),
+                    "requires": list(step.requires.keys()),
+                    "provides": list(step.provides.keys()),
                 },
                 state=self._ctx(state),
             )
         )
 
-    @hook(PipelineEvent.ON_ERROR)
-    def on_error(self, state: State, exc: Exception, *, step: Step, index: int) -> None:
+    @Pipeline.hook(PipelineEvent.ON_ERROR)
+    def on_error(self, state: State, exc: Exception, step: Step, index: int) -> None:
         self.bus.publish(
             Event(
                 PipelineEvent.ON_ERROR,
                 self._label(step),
-                payload={"index": index, "error": repr(exc)},
+                constraints={"index": index, "error": repr(exc)},
                 state=self._ctx(state),
             )
         )
@@ -243,11 +190,11 @@ class FitAwarePipeline(Pipeline):
         refit: if False, fit only steps not yet fitted; if True, always fit.
         fit_priority: hook priority; lower runs earlier.
         """
-        super().__init__(*args, **kwargs)
         self.refit = refit
         self._is_fitted = False
+        super().__init__(*args, **kwargs)
 
-    @hook(PipelineEvent.PIPELINE_START, priority=1)
+    @Pipeline.hook(PipelineEvent.PIPELINE_START, priority=1)
     def _fit_on_start(self, state: State) -> None:
         for step in self.steps:
             if isinstance(step, FitAwareStep):

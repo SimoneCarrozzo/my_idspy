@@ -1,70 +1,86 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterable, Optional, Any, Tuple, override
-from dataclasses import dataclass
+from typing import Dict, Optional, Any
 
 from .state import State, StatePredicate
 
 
-@dataclass
-class TypeConstraint:
-    """Constraint that a state key must have a specific type."""
-
-    key: str
-    expected_type: type
-
-    def check(self, state: State) -> bool:
-        """Check if the constraint is satisfied."""
-        return state.check_type(self.key, self.expected_type)
-
-    def get_value(self, state: State) -> Any:
-        """Get the value, ensuring it has the correct type."""
-        return state.get_typed(self.key, self.expected_type)
-
-
-Constraints = Dict[str, TypeConstraint]
-
-
 class Step(ABC):
-    """Abstract pipeline step."""
+    """Abstract pipeline step with decorator-based configuration."""
 
-    def __init__(
-        self,
-        name: Optional[str] = None,
-        precon: Optional[Constraints] = None,
-        postcon: Optional[Constraints] = None,
-    ) -> None:
+    @staticmethod
+    def requires(**inputs: type):
+        """Decorator to specify input requirements."""
+
+        def decorator(cls):
+            cls._required_inputs = inputs
+            return cls
+
+        return decorator
+
+    @staticmethod
+    def provides(**outputs: type):
+        """Decorator to specify output guarantees."""
+
+        def decorator(cls):
+            cls._provided_outputs = outputs
+            return cls
+
+        return decorator
+
+    def __init__(self, name: Optional[str] = None) -> None:
         self.name: str = name or self.__class__.__name__
-        self.precon = precon or {}
-        self.postcon = postcon or {}
 
-    def check_constraints(self, state: State, constraints: Constraints) -> None:
-        """Raise if constraints are not satisfied."""
-        missing = [
-            name
-            for name, constraint in constraints.items()
-            if not constraint.check(state)
-        ]
-
-        if missing:
-            raise KeyError(f"{self.name}: constraints not satisfied: {missing}")
+        # Get requirements from decorators
+        self.requires = getattr(self.__class__, "_required_inputs", {})
+        self.provides = getattr(self.__class__, "_provided_outputs", {})
 
     def get_inputs(self, state: State) -> Dict[str, Any]:
         """Extract and validate required inputs from state."""
         inputs = {}
-        for name, constraint in self.precon.items():
-            inputs[name] = constraint.get_value(state)
+        for name, expected_type in self.requires.items():
+            # Use same name for state key by default
+            key = name
+
+            value = state.get_typed(key, expected_type)
+            inputs[name] = value
         return inputs
 
+    def validate_outputs(self, outputs: Dict[str, Any]) -> None:
+        """Validate that outputs match declared types."""
+        if not outputs:
+            return
+
+        for name, expected_type in self.provides.items():
+            if name not in outputs:
+                raise KeyError(f"{self.name}: missing required output '{name}'")
+
+            value = outputs[name]
+            if not isinstance(value, expected_type):
+                raise TypeError(
+                    f"{self.name}: expected {expected_type.__name__} for output '{name}', got {type(value).__name__}"
+                )
+
+    def update_state(self, state: State, outputs: Dict[str, Any]) -> None:
+        """Update state with validated outputs."""
+        if outputs:
+            self.validate_outputs(outputs)
+            state.update(outputs)
+
     @abstractmethod
-    def run(self, state: State, **kwargs) -> None:
-        """Mutate state and/or call services."""
+    def run(self, **inputs) -> Optional[Dict[str, Any]]:
+        """Process inputs and return outputs. No direct state access."""
         ...
 
     def __call__(self, state: State, **kwargs) -> None:
-        """Check preconditions, run, validate postconditions."""
-        self.check_constraints(state, self.precon)
-        self.run(state, **kwargs)
-        self.check_constraints(state, self.postcon)
+        """Extract inputs, run step, update state with outputs."""
+        # Get validated inputs
+        inputs = self.get_inputs(state)
+        inputs.update(kwargs)
+
+        outputs = self.run(**inputs)
+
+        # Update state with outputs
+        self.update_state(state, outputs or {})
 
     def execute(self, state: State, **kwargs) -> None:
         """Alias for __call__."""
@@ -73,7 +89,7 @@ class Step(ABC):
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}"
-            f"(name={self.name!r}, precon={len(self.precon)}, postcon={len(self.postcon)})"
+            f"(name={self.name!r}, precon={len(self.requires)}, postcon={len(self.provides)})"
         )
 
 
@@ -89,7 +105,6 @@ class ConditionalStep(Step, ABC):
         """Called if the step is skipped."""
         pass
 
-    @override
     def __call__(self, state: State, **kwargs) -> None:
         if not self.should_run(state):
             self.on_skip(state)
@@ -100,19 +115,9 @@ class ConditionalStep(Step, ABC):
 class FitAwareStep(Step, ABC):
     """Step that must be fitted before running."""
 
-    def __init__(
-        self,
-        name: Optional[str] = None,
-        precon: Optional[Constraints] = None,
-        postcon: Optional[Constraints] = None,
-    ) -> None:
+    def __init__(self, name: Optional[str] = None) -> None:
         self._is_fitted: bool = False
-
-        super().__init__(
-            name=name,
-            precon=precon,
-            postcon=postcon,
-        )
+        super().__init__(name=name)
 
     @property
     def is_fitted(self) -> bool:
@@ -120,14 +125,14 @@ class FitAwareStep(Step, ABC):
         return self._is_fitted
 
     @abstractmethod
-    def fit_impl(self, state: State) -> None:
-        """Subclass hook: fit/precompute resources."""
+    def fit_impl(self, **inputs) -> None:
+        """Subclass hook: fit/precompute resources using inputs."""
         ...
 
     def fit(self, state: State) -> None:
         """Validate inputs and fit."""
-        self.check_constraints(state, self.precon)
-        self.fit_impl(state)
+        inputs = self.get_inputs(state)
+        self.fit_impl(**inputs)
         self._is_fitted = True
 
     def __call__(self, state: State, **kwargs) -> None:
@@ -143,63 +148,96 @@ class FitAwareStep(Step, ABC):
 class Repeat(Step):
     """Repeat a step multiple times or until a predicate returns True (stop)."""
 
+    @staticmethod
+    def _count(value: int):
+        """Decorator to specify repeat count."""
+
+        def decorator(cls):
+            cls._repeat_count = value
+            return cls
+
+        return decorator
+
+    @staticmethod
+    def _predicate(predicate_fn: StatePredicate):
+        """Decorator to specify stop predicate."""
+
+        def decorator(cls):
+            cls._repeat_predicate = predicate_fn
+            return cls
+
+        return decorator
+
     def __init__(
         self,
         step: Step,
-        count: int,
+        count: Optional[int] = None,
         predicate: Optional[StatePredicate] = None,
         name: Optional[str] = None,
     ) -> None:
+        # Use decorator values as defaults if not provided
+        final_count = (
+            count if count is not None else getattr(self.__class__, "_repeat_count", 1)
+        )
+        final_predicate = (
+            predicate
+            if predicate is not None
+            else getattr(self.__class__, "_repeat_predicate", None)
+        )
 
-        if count <= 0:
+        if final_count <= 0:
             raise ValueError("count must be > 0")
 
         self.step = step
-        self.count = count
-        self.predicate = predicate
+        self._count = final_count
+        self._predicate = final_predicate
 
-        super().__init__(
-            name=name or f"repeated({step.name})",
-            precon=step.precon,
-            postcon=step.postcon,
-        )
+        super().__init__(name=name or f"repeated({step.name})")
 
-    def run(self, state: State, **kwargs) -> None:
-        for _ in range(self.count):
+        # Inherit constraints from wrapped step
+        self.requires = step.requires
+        self.provides = step.provides
+
+    def run(self, **inputs) -> Optional[Dict[str, Any]]:
+        """This shouldn't be called directly - we override __call__ instead."""
+        return None
+
+    def __call__(self, state: State, **kwargs) -> None:
+        """Override to handle repetition logic."""
+        for _ in range(self._count):
             self.step(state, **kwargs)
 
-            if self.predicate and self.predicate(state):
+            if self._predicate and self._predicate(state):
                 break
 
     def __repr__(self) -> str:
         base = super().__repr__().rstrip(")")
-        return f"repeated({base}, count={self.count}, predicate={self.predicate})"
+        return f"repeated({base}, count={self._count}, predicate={self._predicate})"
 
 
 class ContextualStep(Step, ABC):
     """Step that runs within a context manager."""
 
-    def __init__(
-        self,
-        step: Step,
-        name: Optional[str] = None,
-    ) -> None:
+    def __init__(self, step: Step, name: Optional[str] = None) -> None:
         self.step = step
+        super().__init__(name=name or f"contextual({step.name})")
 
-        super().__init__(
-            name=name or f"contextual({step.name})",
-            precon=step.precon,
-            postcon=step.postcon,
-        )
+        # Inherit constraints from wrapped step
+        self.requires = step.requires
+        self.provides = step.provides
 
     @abstractmethod
     def context(self, state: State) -> Any:
         """Return a context manager."""
         ...
 
-    def run(self, state: State, **kwargs) -> None:
+    def run(self, **inputs) -> Optional[Dict[str, Any]]:
+        """This shouldn't be called directly - we override __call__ instead."""
+        return None
+
+    def __call__(self, state: State, **kwargs) -> None:
+        """Override to handle context management."""
         with self.context(state) as ctx:
-            # Pass context directly as kwarg to the inner step
             kwargs["context"] = ctx
             self.step(state, **kwargs)
 

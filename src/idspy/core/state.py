@@ -107,23 +107,23 @@ class State(MutableMapping[str, Any]):
         """Shallow copy as a plain dict."""
         return dict(self._data)
 
-    def get_typed(self, key: str, type: Any) -> Any:
+    def get_typed(self, key: str, expected_type: Any) -> Any:
         """Get a value by key and ensure it is of the expected type."""
         if key not in self._data:
             raise KeyError(f"Key '{key}' not found in state.")
         value = self._data[key]
-        if not isinstance(value, type):
+        if not isinstance(value, expected_type):
             raise TypeError(
-                f"Expected value of type {type} for key '{key}', got {type(value)}."
+                f"Expected value of type {expected_type} for key '{key}', got {type(value)}."
             )
         return value
 
-    def check_type(self, key: str, type: Any) -> bool:
+    def check_type(self, key: str, expected_type: Any) -> bool:
         """Check if a value by key is of the expected type."""
         if key not in self._data:
             return False
         value = self._data[key]
-        return isinstance(value, type)
+        return isinstance(value, expected_type)
 
     def __repr__(self) -> str:
         n = len(self._data)
