@@ -27,8 +27,11 @@ class Step(ABC):
 
         return decorator
 
-    def __init__(self, name: Optional[str] = None) -> None:
-        self.name: str = name or self.__class__.__name__
+    def __init__(
+        self, name: Optional[str] = None, scope_prefix: Optional[str] = None
+    ) -> None:
+        self.name = name or self.__class__.__name__
+        self.scope_prefix = scope_prefix
 
         # Get requirements from decorators
         self.requires = getattr(self.__class__, "_required_inputs", {})
@@ -36,6 +39,7 @@ class Step(ABC):
 
     def get_inputs(self, state: State) -> Dict[str, Any]:
         """Extract and validate required inputs from state."""
+        state = state.scope(self.scope_prefix) if self.scope_prefix else state
         inputs = {}
         for name, expected_type in self.requires.items():
             # Use same name for state key by default
@@ -64,6 +68,8 @@ class Step(ABC):
         """Update state with validated outputs."""
         if outputs:
             self.validate_outputs(outputs)
+
+            state = state.scope(self.scope_prefix) if self.scope_prefix else state
             state.update(outputs)
 
     @abstractmethod
@@ -115,9 +121,11 @@ class ConditionalStep(Step, ABC):
 class FitAwareStep(Step, ABC):
     """Step that must be fitted before running."""
 
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(
+        self, name: Optional[str] = None, scope_prefix: Optional[str] = None
+    ) -> None:
         self._is_fitted: bool = False
-        super().__init__(name=name)
+        super().__init__(name=name, scope_prefix=scope_prefix)
 
     @property
     def is_fitted(self) -> bool:
@@ -218,9 +226,13 @@ class Repeat(Step):
 class ContextualStep(Step, ABC):
     """Step that runs within a context manager."""
 
-    def __init__(self, step: Step, name: Optional[str] = None) -> None:
+    def __init__(
+        self, step: Step, name: Optional[str] = None, scope_prefix: Optional[str] = None
+    ) -> None:
         self.step = step
-        super().__init__(name=name or f"contextual({step.name})")
+        super().__init__(
+            name=name or f"contextual({step.name})", scope_prefix=scope_prefix
+        )
 
         # Inherit constraints from wrapped step
         self.requires = step.requires
