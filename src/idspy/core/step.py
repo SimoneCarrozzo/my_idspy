@@ -1,119 +1,199 @@
+import inspect
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Any
+from functools import wraps
+from typing import Any, Dict, Optional, Type
 
 from .state import State, StatePredicate
 
 
 class Step(ABC):
-    """Abstract pipeline step with decorator-based configuration."""
+    """Abstract base class for pipeline steps with decorator-based state management.
 
-    @staticmethod
-    def requires(**inputs: type):
-        """Decorator to specify input requirements."""
+    Rules:
+    - The state can be scoped to a prefix (e.g., step name) to avoid key collisions.
+    - Requires are set to strict=False when scoped, allowing fallback to global keys.
+    - Provides are set to strict=True when scoped, limiting access to only the scoped keys.
+    - Abstract methods must be implemented by subclasses and must be decorated for automatic state handling.
+    """
 
-        def decorator(cls):
-            cls._required_inputs = inputs
-            return cls
-
-        return decorator
-
-    @staticmethod
-    def provides(**outputs: type):
-        """Decorator to specify output guarantees."""
-
-        def decorator(cls):
-            cls._provided_outputs = outputs
-            return cls
-
-        return decorator
-
-    def __init__(
-        self, name: Optional[str] = None, scope_prefix: Optional[str] = None
-    ) -> None:
+    def __init__(self, name: Optional[str] = None, scope: Optional[str] = None) -> None:
+        """Initialize a pipeline step. The scope is used to isolate state keys."""
         self.name = name or self.__class__.__name__
-        self.scope_prefix = scope_prefix
+        self.scope = scope
 
-        # Get requirements from decorators
-        self.requires = getattr(self.__class__, "_required_inputs", {})
-        self.provides = getattr(self.__class__, "_provided_outputs", {})
+    @classmethod
+    def requires(cls, **requirements: Type[Any]):
+        """Automatically injects required parameters from state or kwargs.
+        Rules:
+        - Parameter resolution order: explicit kwargs > scoped state > method defaults.
+        - The state can be scoped to a prefix (e.g., step name) to avoid key collisions.
+        - Inputs are set to strict=False when scoped, allowing fallback to global keys.
+        """
 
-    def get_inputs(self, state: State) -> Dict[str, Any]:
-        """Extract and validate required inputs from state."""
-        state = state.scope(self.scope_prefix) if self.scope_prefix else state
-        inputs = {}
-        for name, expected_type in self.requires.items():
-            # Use same name for state key by default
-            key = name
+        def decorator(func):
+            sig = inspect.signature(func)
 
-            value = state.get_typed(key, expected_type)
-            inputs[name] = value
-        return inputs
+            @wraps(func)
+            def wrapper(self, state: State, **kwargs):
+                view = state.view(self.scope, strict=False) if self.scope else state
 
-    def validate_outputs(self, outputs: Dict[str, Any]) -> None:
-        """Validate that outputs match declared types."""
-        if not outputs:
-            return
+                filled: Dict[str, Any] = {}
 
-        for name, expected_type in self.provides.items():
-            if name not in outputs:
-                raise KeyError(f"{self.name}: missing required output '{name}'")
+                for key, typ in requirements.items():
+                    if key in kwargs:
+                        # explicit value passed by caller
+                        val = kwargs.pop(key)
+                        filled[key] = val
+                        continue
 
-            value = outputs[name]
-            if not isinstance(value, expected_type):
-                raise TypeError(
-                    f"{self.name}: expected {expected_type.__name__} for output '{name}', got {type(value).__name__}"
-                )
+                    # try to read from scoped state
+                    try:
+                        val = view.get(key, typ)
+                        filled[key] = val
+                        continue
+                    except KeyError:
+                        pass  # look for default in signature
+                    except TypeError as e:
+                        # type in state doesn't conform
+                        raise
 
-    def update_state(self, state: State, outputs: Dict[str, Any]) -> None:
-        """Update state with validated outputs."""
-        if outputs:
-            self.validate_outputs(outputs)
+                    # default in method signature, if present
+                    param = sig.parameters.get(key)
+                    if param is not None and param.default is not inspect._empty:
+                        default_val = param.default
+                        filled[key] = default_val
+                    else:
+                        raise KeyError(
+                            f"Missing required state/key '{key}' for step '{self.name}'"
+                        )
 
-            state = state.scope(self.scope_prefix) if self.scope_prefix else state
-            state.update(outputs)
+                kwargs.update(filled)
+                return func(self, state, **kwargs)
+
+            return wrapper
+
+        return decorator
+
+    @classmethod
+    def provides(cls, **outputs: Type[Any]):
+        """Automatically validates and saves method outputs to state with type checking.
+
+        Rules:
+        - The decorated method must return a dict containing all declared outputs.
+        - The state can be scoped to a prefix (e.g., step name) to avoid key collisions.
+        - Each output key must be unique within the step's scope.
+        - Outputs are set to strict=True when scoped, limiting access to only the scoped keys.
+        """
+
+        def decorator(func):
+            @wraps(func)
+            def wrapper(self, state: State, **kwargs):
+                result = func(self, state, **kwargs)
+
+                if result is None:
+                    return None
+
+                if not isinstance(result, dict):
+                    raise TypeError(
+                        f"Step '{self.name}' must return a dict (or None) when using "
+                        f"@Step.provides, got {type(result).__name__}"
+                    )
+
+                view = state.view(self.scope, strict=True) if self.scope else state
+
+                # validate and persist each declared key
+                for key, typ in outputs.items():
+                    if key not in result:
+                        raise KeyError(
+                            f"Returned dict from step '{self.name}' is missing key '{key}'"
+                        )
+                    value = result[key]
+                    view.set(key, value, typ)
+
+                return result
+
+            return wrapper
+
+        return decorator
+
+    @classmethod
+    def repeat(
+        cls, count: Optional[int] = 1000, predicate: Optional[StatePredicate] = None
+    ):
+        """Repeat the decorated method multiple times or until a predicate returns True.
+
+        Args:
+            count: Number of times to repeat (default: 1000)
+            predicate: Optional predicate function to check for early stopping
+
+        Rules:
+        - The method will be repeated up to 'count' times
+        - If predicate is provided and returns True, repetition stops early
+        - Both count and predicate can be None for single execution
+        - Each decorator below is re-applied at each iteration
+        """
+
+        def decorator(func):
+            @wraps(func)
+            def wrapper(self, state: State, **kwargs):
+                final_count = count if count is not None else 1
+
+                if final_count <= 0:
+                    raise ValueError("count must be > 0")
+
+                for _ in range(final_count):
+                    result = func(self, state, **kwargs)
+
+                    if predicate and predicate(state):
+                        break
+
+                return result
+
+            return wrapper
+
+        return decorator
 
     @abstractmethod
-    def run(self, **inputs) -> Optional[Dict[str, Any]]:
-        """Process inputs and return outputs. No direct state access."""
+    def run(self, state: State, **kwargs) -> Optional[Dict[str, Any]]:
+        """Execute the step's main logic.
+
+        This method should be implemented by subclasses and can be decorated
+        with @Step.requires and @Step.provides for automatic parameter/output handling.
+
+        Args:
+            state: Current pipeline state
+            **kwargs: Additional parameters
+
+        Returns:
+            Optional dictionary of outputs to be saved to state
+        """
         ...
 
     def __call__(self, state: State, **kwargs) -> None:
-        """Extract inputs, run step, update state with outputs."""
-        # Get validated inputs
-        inputs = self.get_inputs(state)
-        inputs.update(kwargs)
-
-        outputs = self.run(**inputs)
-
-        # Update state with outputs
-        self.update_state(state, outputs or {})
-
-    def execute(self, state: State, **kwargs) -> None:
-        """Alias for __call__."""
-        self(state, **kwargs)
+        """Execute the step by calling its run method."""
+        self.run(state, **kwargs)
 
     def __repr__(self) -> str:
-        return (
-            f"{self.__class__.__name__}"
-            f"(name={self.name!r}, precon={len(self.requires)}, postcon={len(self.provides)})"
-        )
+        """Return string representation of the step."""
+        return f"{self.__class__.__name__}(name={self.name!r}, scope={self.scope!r})"
 
 
 class ConditionalStep(Step, ABC):
     """Step that runs only if a condition holds."""
 
     @abstractmethod
-    def should_run(self, state: State) -> bool:
+    def should_run(self, state: State, **kwargs) -> bool:
         """Return True to run, False to skip."""
         ...
 
-    def on_skip(self, state: State) -> None:
+    @abstractmethod
+    def on_skip(self, state: State, **kwargs) -> None:
         """Called if the step is skipped."""
         pass
 
     def __call__(self, state: State, **kwargs) -> None:
-        if not self.should_run(state):
-            self.on_skip(state)
+        if not self.should_run(state, **kwargs):
+            self.on_skip(state, **kwargs)
             return
         super().__call__(state, **kwargs)
 
@@ -121,11 +201,9 @@ class ConditionalStep(Step, ABC):
 class FitAwareStep(Step, ABC):
     """Step that must be fitted before running."""
 
-    def __init__(
-        self, name: Optional[str] = None, scope_prefix: Optional[str] = None
-    ) -> None:
+    def __init__(self, name: Optional[str] = None, **kwargs) -> None:
         self._is_fitted: bool = False
-        super().__init__(name=name, scope_prefix=scope_prefix)
+        super().__init__(name=name, **kwargs)
 
     @property
     def is_fitted(self) -> bool:
@@ -133,14 +211,13 @@ class FitAwareStep(Step, ABC):
         return self._is_fitted
 
     @abstractmethod
-    def fit_impl(self, **inputs) -> None:
+    def fit_impl(self, state: State, **kwargs) -> None:
         """Subclass hook: fit/precompute resources using inputs."""
         ...
 
-    def fit(self, state: State) -> None:
+    def fit(self, state: State, **kwargs) -> None:
         """Validate inputs and fit."""
-        inputs = self.get_inputs(state)
-        self.fit_impl(**inputs)
+        self.fit_impl(state, **kwargs)
         self._is_fitted = True
 
     def __call__(self, state: State, **kwargs) -> None:
@@ -153,105 +230,27 @@ class FitAwareStep(Step, ABC):
         return f"{base}, fitted={self._is_fitted})"
 
 
-class Repeat(Step):
-    """Repeat a step multiple times or until a predicate returns True (stop)."""
-
-    @staticmethod
-    def _count(value: int):
-        """Decorator to specify repeat count."""
-
-        def decorator(cls):
-            cls._repeat_count = value
-            return cls
-
-        return decorator
-
-    @staticmethod
-    def _predicate(predicate_fn: StatePredicate):
-        """Decorator to specify stop predicate."""
-
-        def decorator(cls):
-            cls._repeat_predicate = predicate_fn
-            return cls
-
-        return decorator
-
-    def __init__(
-        self,
-        step: Step,
-        count: Optional[int] = None,
-        predicate: Optional[StatePredicate] = None,
-        name: Optional[str] = None,
-    ) -> None:
-        # Use decorator values as defaults if not provided
-        final_count = (
-            count if count is not None else getattr(self.__class__, "_repeat_count", 1)
-        )
-        final_predicate = (
-            predicate
-            if predicate is not None
-            else getattr(self.__class__, "_repeat_predicate", None)
-        )
-
-        if final_count <= 0:
-            raise ValueError("count must be > 0")
-
-        self.step = step
-        self._count = final_count
-        self._predicate = final_predicate
-
-        super().__init__(name=name or f"repeated({step.name})")
-
-        # Inherit constraints from wrapped step
-        self.requires = step.requires
-        self.provides = step.provides
-
-    def run(self, **inputs) -> Optional[Dict[str, Any]]:
-        """This shouldn't be called directly - we override __call__ instead."""
-        return None
-
-    def __call__(self, state: State, **kwargs) -> None:
-        """Override to handle repetition logic."""
-        for _ in range(self._count):
-            self.step(state, **kwargs)
-
-            if self._predicate and self._predicate(state):
-                break
-
-    def __repr__(self) -> str:
-        base = super().__repr__().rstrip(")")
-        return f"repeated({base}, count={self._count}, predicate={self._predicate})"
-
-
 class ContextualStep(Step, ABC):
     """Step that runs within a context manager."""
 
-    def __init__(
-        self, step: Step, name: Optional[str] = None, scope_prefix: Optional[str] = None
-    ) -> None:
+    def __init__(self, step: Step, **kwargs) -> None:
         self.step = step
-        super().__init__(
-            name=name or f"contextual({step.name})", scope_prefix=scope_prefix
-        )
-
-        # Inherit constraints from wrapped step
-        self.requires = step.requires
-        self.provides = step.provides
+        super().__init__(name=f"contextual({step.name})", scope=step.scope, **kwargs)
 
     @abstractmethod
     def context(self, state: State) -> Any:
         """Return a context manager."""
         ...
 
-    def run(self, **inputs) -> Optional[Dict[str, Any]]:
-        """This shouldn't be called directly - we override __call__ instead."""
-        return None
-
-    def __call__(self, state: State, **kwargs) -> None:
-        """Override to handle context management."""
+    def run(self, state: State, **kwargs) -> None:
+        """Execute the step within the context manager. Provides 'context' kwarg."""
         with self.context(state) as ctx:
             kwargs["context"] = ctx
             self.step(state, **kwargs)
+
+    def __call__(self, state: State, **kwargs) -> None:
+        """Override to handle context management."""
+        self.run(state, **kwargs)
 
     def __repr__(self) -> str:
         base = super().__repr__().rstrip(")")

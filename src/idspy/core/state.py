@@ -1,163 +1,249 @@
-from collections.abc import MutableMapping, Iterator, Mapping
+from collections.abc import Iterator, Mapping
+from typing import Any, Callable, Type, TypeVar
 from types import MappingProxyType
-from typing import Any, Callable
 
-_SEPARATOR = "."
-StatePredicate = Callable[["State"], bool]
+T = TypeVar("T")
 
 
-class State(MutableMapping[str, Any]):
-    """Mutable key-value store with scoped and read-only views."""
+class State:
+    """Typed key-value store with dynamic prefix views."""
 
-    def __init__(
-        self,
-        data: dict[str, Any] | None = None,
-        *,
-        prefix: str = "",
-        alias: bool = False,
-    ):
-        """
-        Create a state.
+    SEPARATOR = "."
 
-        Args:
-            data: Initial data dict.
-            prefix: Scope prefix (without trailing '.').
-            alias: If True, reuse the given dict; otherwise copy it.
-        """
-        if prefix.endswith(_SEPARATOR):
-            raise ValueError(f"prefix must not end with '{_SEPARATOR}'")
+    def __init__(self, data: dict[str, Any] | None = None) -> None:
+        self._data: dict[str, Any] = {}
+        if data:
+            self._data.update(data)
 
-        self._data: dict[str, Any] = (
-            data if (alias and data is not None) else dict(data or {})
-        )
-        self._prefix = prefix
-        self._prefix_dot = f"{prefix}{_SEPARATOR}" if prefix else ""
+    @staticmethod
+    def _prefix(prefix: str) -> str:
+        return prefix + State.SEPARATOR if prefix else ""
 
-    def _qualify(self, key: str) -> str:
-        """Return qualified key (prefix + key)."""
-        if not isinstance(key, str) or not key:
-            raise KeyError("key must be a non-empty string")
-        return f"{self._prefix_dot}{key}" if self._prefix else key
+    # ---------- typed access ----------
 
-    def _in_scope(self, qualified_key: str) -> bool:
-        """Check if a qualified key belongs to this scope."""
-        return not self._prefix or qualified_key.startswith(self._prefix_dot)
-
-    def _unqualify(self, qualified_key: str) -> str:
-        """Strip this scope's prefix from a qualified key."""
-        if self._prefix and qualified_key.startswith(self._prefix_dot):
-            return qualified_key[len(self._prefix_dot) :]
-        return qualified_key
-
-    def _scoped_keys(self) -> Iterator[str]:
-        """Iterate unqualified keys in this scope."""
-        for k in self._data:
-            if self._in_scope(k):
-                yield self._unqualify(k)
-
-    def __getitem__(self, key: str) -> Any:
-        return self._data[self._qualify(key)]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._data[self._qualify(key)] = value
-
-    def __delitem__(self, key: str) -> None:
-        del self._data[self._qualify(key)]
-
-    def __iter__(self) -> Iterator[str]:
-        return self._scoped_keys()
-
-    def __len__(self) -> int:
-        return sum(1 for _ in self._scoped_keys())
-
-    def __contains__(self, key: object) -> bool:
-        return isinstance(key, str) and (self._qualify(key) in self._data)
-
-    def clear(self) -> None:
-        """Remove all keys in this scope."""
-        for k in list(self._scoped_keys()):
-            del self[k]
-
-    def readonly(self) -> Mapping[str, Any]:
-        """Return a read-only view of the scoped data."""
-        return MappingProxyType(self.to_dict())
-
-    def scope(self, prefix: str) -> "State":
-        """Return a mutable view limited to keys under `prefix + '.'`."""
-        if not isinstance(prefix, str) or not prefix:
-            raise ValueError("prefix must be a non-empty string")
-        if prefix.endswith(_SEPARATOR):
-            raise ValueError(f"prefix must not end with '{_SEPARATOR}'")
-        full_prefix = f"{self._prefix_dot}{prefix}" if self._prefix else prefix
-        # Share the same underlying dict intentionally
-        return State(self._data, prefix=full_prefix, alias=True)
-
-    def copy(self) -> "State":
-        """Return a shallow copy of the current scope."""
-        return State(self.to_dict())
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return a shallow dict of the current scope."""
-        return {k: self[k] for k in self._scoped_keys()}
-
-    def get_typed(self, key: str, expected_type: Any) -> Any:
-        """Get a value and assert its type."""
-        qk = self._qualify(key)
-        if qk not in self._data:
-            raise KeyError(f"Key '{key}' not found in state.")
-        value = self._data[qk]
-        if not isinstance(value, expected_type):
+    def set(self, key: str, value: T, typ: Type[T]) -> None:
+        """Set value enforcing type."""
+        if not isinstance(value, typ):
             raise TypeError(
-                f"Expected {expected_type} for key '{key}', got {type(value)}."
+                f"Value for '{key}' must be {typ.__name__}, not {type(value).__name__}"
             )
+        # Check existing value type compatibility
+        if key in self._data:
+            existing_type = type(self._data[key])
+            if existing_type is not typ:
+                raise TypeError(
+                    f"Key '{key}' already exists with type {existing_type.__name__}, not {typ.__name__}"
+                )
+        self._data[key] = value
+
+    def update(self, key: str, value: T, typ: Type[T]) -> None:
+        """Force-set value (replaces existing type)."""
+        if not isinstance(value, typ):
+            raise TypeError(
+                f"Value for '{key}' must be {typ.__name__}, not {type(value).__name__}"
+            )
+        self._data[key] = value
+
+    def get(self, key: str, typ: Type[T]) -> T:
+        """Get value asserting the expected type."""
+        if key not in self._data:
+            raise KeyError(f"Missing key '{key}'")
+
+        value = self._data[key]
+        if not isinstance(value, typ):
+            actual_type = type(value).__name__
+            expected_type = typ.__name__
+            raise TypeError(f"Key '{key}' contains {actual_type}, not {expected_type}")
         return value
 
-    def check_type(self, key: str, expected_type: Any) -> bool:
-        """Return True if key exists and value is of expected type."""
-        qk = self._qualify(key)
-        return qk in self._data and isinstance(self._data[qk], expected_type)
+    def delete(self, key: str) -> None:
+        """Delete key."""
+        if key not in self._data:
+            raise KeyError(f"Missing key '{key}'")
+        del self._data[key]
+
+    def has(self, key: str) -> bool:
+        """Return True if key exists."""
+        return key in self._data
+
+    # ---------- iteration & introspection ----------
+
+    def keys(self) -> Iterator[str]:
+        """Iterate all keys."""
+        return iter(self._data.keys())
+
+    def items(self) -> Iterator[tuple[str, Any]]:
+        """Iterate all items."""
+        return iter(self._data.items())
+
+    def types(self) -> Mapping[str, Type]:
+        """Return inferred types mapping."""
+        return {k: type(v) for k, v in self._data.items()}
+
+    def as_dict(self) -> Mapping[str, Any]:
+        """Return a read-only view of the internal data."""
+        return MappingProxyType(self._data)
+
+    # ---------- views ----------
+
+    def view(self, prefix: str, strict: bool = True) -> "StateView":
+        """Return a dynamic view for 'prefix.' with stripped keys.
+
+        Args:
+            prefix: The prefix to filter keys by
+            strict: If True (default), only include keys with the prefix.
+                   If False, include keys with prefix + keys without any prefix.
+        """
+        return StateView(self, prefix, strict)
 
     def __repr__(self) -> str:
-        """Return a debug-friendly representation."""
-        if not self._prefix:
-            n = len(self._data)
-            items = list(self._data.items())[:6]
-            body = ", ".join(f"{k!r}: {v!r}" for k, v in items)
-            suffix = ", ..." if n > 6 else ""
-            return f"State(size={n}, data={{{body}{suffix}}})"
-        keys = list(self._scoped_keys())
-        preview = ", ".join(keys[:5])
-        more = "..." if len(keys) > 5 else ""
-        return (
-            f"State(prefix={self._prefix!r}, size={len(keys)}, keys=[{preview}{more}])"
-        )
+        return f"State(data={self.as_dict()})"
+
+
+class StateView:
+    """Dynamic view over a State for a given prefix.
+
+    Rules:
+    - Keys are accessed as 'prefix.key' in the underlying State.
+    - In strict mode (default), only keys with the prefix are accessible.
+    - In non-strict mode, keys without the prefix are also accessible but prioritized lower.
+    """
+
+    def __init__(self, state: State, prefix: str, strict: bool = True) -> None:
+        self._state = state
+        self._p = State._prefix(prefix)
+        self._strict = strict
+
+    # --- typed access ---
+
+    def set(self, key: str, value: T, typ: Type[T]) -> None:
+        """Set value in the view."""
+        self._state.set(self._p + key, value, typ)
+
+    def update(self, key: str, value: T, typ: Type[T]) -> None:
+        """Force-set value and type in the view."""
+        self._state.update(self._p + key, value, typ)
+
+    def get(self, key: str, typ: Type[T]) -> T:
+        """Get value from the view."""
+        prefixed_key = self._p + key
+        try:
+            return self._state.get(prefixed_key, typ)
+        except KeyError:
+            if not self._strict and State.SEPARATOR not in key:
+                # Try accessing without prefix when not in strict mode
+                return self._state.get(key, typ)
+            raise
+
+    def delete(self, key: str) -> None:
+        """Delete key from the view."""
+        prefixed_key = self._p + key
+        try:
+            self._state.delete(prefixed_key)
+        except KeyError:
+            if not self._strict and State.SEPARATOR not in key:
+                # Try deleting without prefix when not in strict mode
+                self._state.delete(key)
+            else:
+                raise
+
+    def has(self, key: str) -> bool:
+        """Return True if key exists in the view."""
+        prefixed_key = self._p + key
+        if self._state.has(prefixed_key):
+            return True
+        if not self._strict and State.SEPARATOR not in key:
+            # Try checking without prefix when not in strict mode
+            return self._state.has(key)
+        return False
+
+    # --- iteration & introspection ---
+
+    def keys(self) -> Iterator[str]:
+        """Iterate bare keys in this view."""
+        plen = len(self._p)
+        for k in self._state.keys():
+            if k.startswith(self._p):
+                yield k[plen:]
+            elif not self._strict and State.SEPARATOR not in k:
+                # Include keys without any prefix when not in strict mode
+                yield k
+
+    def items(self) -> Iterator[tuple[str, Any]]:
+        """Iterate bare (key, value) in this view."""
+        plen = len(self._p)
+        for k, v in self._state.items():
+            if k.startswith(self._p):
+                yield (k[plen:], v)
+            elif not self._strict and State.SEPARATOR not in k:
+                # Include keys without any prefix when not in strict mode
+                yield (k, v)
+
+    def types(self) -> Mapping[str, Type]:
+        """Return inferred types for this view (bare keys)."""
+        plen = len(self._p)
+        state_types = self._state.types()
+        result = {}
+        for k, t in state_types.items():
+            if k.startswith(self._p):
+                result[k[plen:]] = t
+            elif not self._strict and State.SEPARATOR not in k:
+                # Include keys without any prefix when not in strict mode
+                result[k] = t
+        return result
+
+    def as_dict(self) -> Mapping[str, Any]:
+        """Return a read-only view of the data in this view (bare keys)."""
+        return MappingProxyType({k: v for k, v in self.items()})
+
+    def __repr__(self) -> str:
+        return f"StateView(prefix='{self._p}', strict={self._strict}, items={self.as_dict()})"
+
+
+StatePredicate = Callable[[State | StateView], bool]
 
 
 def has_key(key: str) -> StatePredicate:
     """Accept states that contain `key`."""
-    return lambda state: key in state
+    return lambda state: state.has(key)
 
 
 def key_equals(key: str, value: object) -> StatePredicate:
     """Accept states where `key` equals `value`."""
-    return lambda state: state.get(key) == value
+
+    def predicate(state):
+        try:
+            return state.get(key, type(value)) == value
+        except (KeyError, TypeError):
+            return False
+
+    return predicate
 
 
 def key_not_equals(key: str, value: object) -> StatePredicate:
     """Accept states where `key` does not equal `value`."""
-    return lambda state: state.get(key) != value
-
-
-def key_exists_and(key: str, predicate: Callable[[Any], bool]) -> StatePredicate:
-    """Accept states where `key` exists and predicate(value) is True."""
-    return lambda state: key in state and predicate(state[key])
+    return lambda state: not key_equals(key, value)(state)
 
 
 def key_is_truthy(key: str) -> StatePredicate:
     """Accept states where `key` exists and is truthy."""
-    return lambda state: bool(state.get(key))
+
+    def predicate(state):
+        try:
+            return bool(state.get(key, bool))
+        except (KeyError, TypeError):
+            return False
+
+    return predicate
 
 
 def key_is_falsy(key: str) -> StatePredicate:
     """Accept states where `key` is missing or falsy."""
-    return lambda state: not state.get(key)
+
+    def predicate(state):
+        try:
+            return not bool(state.get(key, bool))
+        except (KeyError, TypeError):
+            return True  # Missing key is considered falsy
+
+    return predicate
