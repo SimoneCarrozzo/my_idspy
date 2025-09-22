@@ -73,12 +73,7 @@ class Pipeline(Step):
         for priority, hook_func in hook_list:
             hook_func(*args, **kwargs)
 
-    def run(self, **inputs) -> Optional[Dict[str, Any]]:
-        """Execute sub-steps sequentially and emit events."""
-        # Pipeline doesn't return outputs directly - sub-steps mutate state through __call__
-        return None
-
-    def __call__(self, state: State, **kwargs) -> None:
+    def run(self, state: State, **kwargs) -> None:
         """Execute sub-steps sequentially and emit events."""
         self._fire(PipelineEvent.PIPELINE_START, state)
         try:
@@ -93,6 +88,9 @@ class Pipeline(Step):
                     self._fire(PipelineEvent.AFTER_STEP, step, state, idx)
         finally:
             self._fire(PipelineEvent.PIPELINE_END, state)
+
+    def __call__(self, state: State, **kwargs) -> None:
+        self.run(state, **kwargs)
 
     def add_step(self, step: Step) -> None:
         """Append a sub-step."""
