@@ -1,9 +1,10 @@
+from typing import Any, Dict, Optional
+
 import numpy as np
 import pandas as pd
 
-from ..helpers import validate_instance
-from ...core.state import State
 from ...core.step import Step
+from ...core.state import State
 from ...data.tab_accessor import reattach_meta
 
 
@@ -12,25 +13,21 @@ class DropNulls(Step):
 
     def __init__(
         self,
-        dataframe_in: str = "data.root",
-        dataframe_out: str | None = None,
-        name: str | None = None,
+        in_scope: str = "data",
+        out_scope: str = "data",
+        name: Optional[str] = None,
     ) -> None:
-        self.dataframe_in = dataframe_in
-        self.dataframe_out = dataframe_out or dataframe_in
-
         super().__init__(
             name=name or "drop_nulls",
-            requires=[self.dataframe_in],
-            provides=[self.dataframe_out],
+            in_scope=in_scope,
+            out_scope=out_scope,
         )
 
-    def run(self, state: State) -> None:
-        dataframe = state[self.dataframe_in]
-        validate_instance(dataframe, pd.DataFrame, self.name)
-
-        dataframe = dataframe.replace([np.inf, -np.inf], np.nan).dropna()
-        state[self.dataframe_out] = dataframe
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        root = root.replace([np.inf, -np.inf], np.nan).dropna()
+        return {"root": root}
 
 
 class Filter(Step):
@@ -39,26 +36,23 @@ class Filter(Step):
     def __init__(
         self,
         query: str,
-        dataframe_in: str = "data.root",
-        dataframe_out: str | None = None,
-        name: str | None = None,
+        in_scope: str = "data",
+        out_scope: str = "data",
+        name: Optional[str] = None,
     ) -> None:
         self.query = query
-        self.dataframe_in = dataframe_in
-        self.dataframe_out = dataframe_out or dataframe_in
 
         super().__init__(
             name=name or "filter",
-            requires=[self.dataframe_in],
-            provides=[self.dataframe_out],
+            in_scope=in_scope,
+            out_scope=out_scope,
         )
 
-    def run(self, state: State) -> None:
-        dataframe = state[self.dataframe_in]
-        validate_instance(dataframe, pd.DataFrame, self.name)
-
-        filtered = dataframe.query(self.query)
-        state[self.dataframe_out] = reattach_meta(dataframe, filtered)
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        filtered = root.query(self.query)
+        return {"root": reattach_meta(root, filtered)}
 
 
 class Log1p(Step):
@@ -66,22 +60,19 @@ class Log1p(Step):
 
     def __init__(
         self,
-        dataframe_in: str = "data.root",
-        dataframe_out: str | None = None,
-        name: str | None = None,
+        in_scope: str = "data",
+        out_scope: str = "data",
+        name: Optional[str] = None,
     ) -> None:
-        self.dataframe_in = dataframe_in
-        self.dataframe_out = dataframe_out or dataframe_in
-
         super().__init__(
             name=name or "log1p",
-            requires=[self.dataframe_in],
-            provides=[self.dataframe_out],
+            in_scope=in_scope,
+            out_scope=out_scope,
         )
 
-    def run(self, state: State) -> None:
-        dataframe = state[self.dataframe_in]
-        validate_instance(dataframe, pd.DataFrame, self.name)
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
 
-        dataframe.tab.numerical = np.log1p(dataframe.tab.numerical)
-        state[self.dataframe_out] = dataframe
+        root.tab.numerical = np.log1p(root.tab.numerical)
+        return {"root": root}

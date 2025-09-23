@@ -1,14 +1,11 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 import numpy as np
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 
-from ..helpers import validate_instance
+from ...core.step import FitAwareStep, Step
 from ...core.state import State
-from ...core.step import FitAwareStep
-from ...data.partition import PartitionName
-from ...data.tab_accessor import reattach_meta
 
 
 class FrequencyMap(FitAwareStep):
@@ -16,30 +13,26 @@ class FrequencyMap(FitAwareStep):
 
     def __init__(
         self,
-        dataframe_in: str = "data.root",
-        dataframe_out: Optional[str] = None,
         max_levels: Optional[int] = None,
         default: int = 0,
+        in_scope: str = "data",
+        out_scope: str = "data",
         name: Optional[str] = None,
     ) -> None:
-        self.dataframe_in = dataframe_in
-        self.dataframe_out = dataframe_out or dataframe_in
         self.max_levels = max_levels
         self.default = default
         self.cat_types: Dict[str, CategoricalDtype] = {}
 
         super().__init__(
             name=name or "frequency_map",
-            requires=[self.dataframe_in],
-            provides=[self.dataframe_out, "mapping.categorical"],
+            in_scope=in_scope,
+            out_scope=out_scope,
         )
 
-    def fit_impl(self, state: State) -> None:
+    @Step.requires(root=pd.DataFrame)
+    def fit_impl(self, state: State, root: pd.DataFrame) -> None:
         """Infer ordered categories by frequency from train split."""
-        dataframe = state[self.dataframe_in]
-        validate_instance(dataframe, pd.DataFrame, self.name)
-
-        train_df = dataframe.tab.train
+        train_df = root.tab.train
         self.cat_types.clear()
 
         cat_cols = train_df.tab.categorical.columns
@@ -55,30 +48,25 @@ class FrequencyMap(FitAwareStep):
 
             self.cat_types[col] = CategoricalDtype(categories=cats, ordered=True)
 
-    def run(self, state: State) -> None:
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame, cat_mapping=dict)
+    def run(self, state: State, root: pd.DataFrame) -> None:
         """Apply learned frequency mapping to categorical columns."""
-        dataframe = state[self.dataframe_in]
-        validate_instance(dataframe, pd.DataFrame, self.name)
-
-        out = dataframe.copy()
 
         # Early exit if no categorical mappings learned
         if not self.cat_types:
-            state[self.dataframe_out] = reattach_meta(dataframe, out)
-            state["mapping.categorical"] = self.cat_types
-            return
+            return {"root": root, "cat_mapping": {}}
 
-        cat_cols = dataframe.tab.categorical.columns
+        cat_cols = root.tab.categorical.columns
         for col in cat_cols:
-            if col not in self.cat_types or col not in out.columns:
+            if col not in self.cat_types or col not in root.columns:
                 continue
 
-            s = out[col].astype(self.cat_types[col])
+            s = root[col].astype(self.cat_types[col])
             codes = s.cat.codes
-            out[col] = np.where(codes != -1, codes + 1, self.default).astype("int32")
+            root[col] = np.where(codes != -1, codes + 1, self.default).astype("int32")
 
-        state[self.dataframe_out] = reattach_meta(dataframe, out)
-        state["mapping.categorical"] = self.cat_types
+        return {"root": root, "cat_mapping": self.cat_types}
 
 
 class LabelMap(FitAwareStep):
@@ -86,65 +74,48 @@ class LabelMap(FitAwareStep):
 
     def __init__(
         self,
-        dataframe_in: str = "data.root",
-        dataframe_out: Optional[str] = None,
         benign_tag: Optional[str] = None,
         default: int = -1,
+        in_scope: str = "data",
+        out_scope: str = "data",
         name: Optional[str] = None,
     ) -> None:
-        self.dataframe_in = dataframe_in
-        self.dataframe_out = dataframe_out or dataframe_in
         self.benign_tag = benign_tag
         self.default = default
         self.cat_types: Optional[CategoricalDtype] = None
 
         super().__init__(
             name=name or "target_map",
-            requires=[self.dataframe_in],
-            provides=[self.dataframe_out, "mapping.target"],
+            in_scope=in_scope,
+            out_scope=out_scope,
         )
 
-    def fit_impl(self, state: State) -> None:
+    @Step.requires(root=pd.DataFrame)
+    def fit_impl(self, state: State, root: pd.DataFrame) -> None:
         """Learn ordered categories for the target col (if not binary)."""
-        dataframe = state[self.dataframe_in]
-        validate_instance(dataframe, pd.DataFrame, self.name)
 
         # Early exit for binary case
         if self.benign_tag is not None:
             self.cat_types = None
             return
 
-        train_df = dataframe.tab.train
-        tgt_cols = train_df.tab.target.columns
-        if len(tgt_cols) != 1:
-            raise ValueError(
-                f"Expected exactly 1 target column, found {len(tgt_cols)}: {tgt_cols}"
-            )
+        train_df = root.tab.train
+        tgt_col = train_df.tab.schema.target
 
-        tgt_col = tgt_cols[0]
         vc = train_df[tgt_col].value_counts(dropna=False)
         self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
 
-    def run(self, state: State) -> None:
-        """Apply target encoding (binary or ordinal)."""
-        dataframe = state[self.dataframe_in]
-        validate_instance(dataframe, pd.DataFrame, self.name)
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame, target_mapping=CategoricalDtype | None)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        tgt_col = root.tab.schema.target
 
-        tgt_cols = dataframe.tab.target.columns
-        if len(tgt_cols) != 1:
-            raise ValueError(
-                f"Expected exactly 1 target column, found {len(tgt_cols)}: {tgt_cols}"
-            )
-        tgt_col = tgt_cols[0]
-        prev = dataframe[tgt_col].copy()
+        prev = root[tgt_col].copy()
 
         if self.benign_tag is not None:
             tgt = (prev == self.benign_tag).astype("int32")
             tgt = tgt.where(tgt == 0, 1)
         else:
-            if self.cat_types is None:
-                raise RuntimeError("LabelMap was not fitted with category types.")
-
             s = prev.astype(self.cat_types)
             codes = s.cat.codes
             tgt = pd.Series(
@@ -153,7 +124,6 @@ class LabelMap(FitAwareStep):
                 name=tgt_col,
             )
 
-        dataframe[f"original_{tgt_col}"] = prev
-        dataframe.tab.target = tgt
-        state[self.dataframe_out] = dataframe
-        state["mapping.target"] = self.cat_types
+        root[f"original_{tgt_col}"] = prev
+        root.tab.target = tgt
+        return {"root": root, "target_mapping": self.cat_types}
