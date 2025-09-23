@@ -59,6 +59,7 @@ class DataFrameRepository:
                 pickle.dump(meta, f)
 
         # metadata will be stored separately if needed
+        df = df.copy()
         df.attrs.clear()
 
         save_func = cls.SAVE_FUNCS[resolved_fmt]

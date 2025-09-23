@@ -1,11 +1,11 @@
 from enum import Enum
+from types import MappingProxyType
 from typing import (
     Sequence,
     Optional,
     List,
     Any,
     Callable,
-    Dict,
     Union,
     Mapping,
 )
@@ -78,14 +78,24 @@ class Pipeline(Step):
         self._fire(PipelineEvent.PIPELINE_START, state)
         try:
             for idx, step in enumerate(self.steps):
-                self._fire(PipelineEvent.BEFORE_STEP, step, state, idx)
+                self._fire(
+                    PipelineEvent.BEFORE_STEP,
+                    step,
+                    state.view(self.in_scope, strict=False),
+                    idx,
+                )
                 try:
                     step(state, **kwargs)
                 except Exception as e:
                     self._fire(PipelineEvent.ON_ERROR, state, e, step, idx)
                     raise
                 else:
-                    self._fire(PipelineEvent.AFTER_STEP, step, state, idx)
+                    self._fire(
+                        PipelineEvent.AFTER_STEP,
+                        step,
+                        state.view(self.out_scope, strict=True),
+                        idx,
+                    )
         finally:
             self._fire(PipelineEvent.PIPELINE_END, state)
 
@@ -109,68 +119,77 @@ class ObservablePipeline(Pipeline):
     """Pipeline that publishes lifecycle events to an EventBus."""
 
     def __init__(
-        self, *args: Any, bus: Optional[EventBus] = None, **kwargs: Any
+        self, steps: Sequence[Step], bus: Optional[EventBus] = None, **kwargs: Any
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(steps, **kwargs)
         self.bus: EventBus = bus or EventBus()
 
     @staticmethod
-    def _ctx(state: State) -> Mapping[str, Any]:
-        return state.readonly()
+    def _payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        return MappingProxyType(payload)
 
     def _label(self, step: Optional[Step]) -> str:
         return f"{self.name}.{step.name}" if step is not None else self.name
 
     @Pipeline.hook(PipelineEvent.PIPELINE_START)
     def start(self, state: State) -> None:
+        payload = self._payload(state.as_dict())
         self.bus.publish(
-            Event(PipelineEvent.PIPELINE_START, self.name, state=self._ctx(state))
+            Event(
+                PipelineEvent.PIPELINE_START,
+                self.name,
+                payload=payload,
+            )
         )
 
     @Pipeline.hook(PipelineEvent.PIPELINE_END)
     def end(self, state: State) -> None:
+        payload = self._payload(state.as_dict())
         self.bus.publish(
-            Event(PipelineEvent.PIPELINE_END, self.name, state=self._ctx(state))
+            Event(
+                PipelineEvent.PIPELINE_END,
+                self.name,
+                payload=payload,
+            )
         )
 
     @Pipeline.hook(PipelineEvent.BEFORE_STEP)
     def before_step(self, step: Step, state: State, index: int) -> None:
+        payload = state.as_dict()
+        payload["step_index"] = index
+
         self.bus.publish(
             Event(
                 PipelineEvent.BEFORE_STEP,
                 self._label(step),
-                constraints={
-                    "index": index,
-                    "requires": list(step.requires.keys()),
-                    "provides": list(step.provides.keys()),
-                },
-                state=self._ctx(state),
+                payload=self._payload(payload),
             )
         )
 
     @Pipeline.hook(PipelineEvent.AFTER_STEP)
     def after_step(self, step: Step, state: State, index: int) -> None:
+        payload = state.as_dict()
+        payload["step_index"] = index
+
         self.bus.publish(
             Event(
                 PipelineEvent.AFTER_STEP,
                 self._label(step),
-                constraints={
-                    "index": index,
-                    "requires": list(step.requires.keys()),
-                    "provides": list(step.provides.keys()),
-                },
-                state=self._ctx(state),
+                payload=self._payload(payload),
             )
         )
 
     @Pipeline.hook(PipelineEvent.ON_ERROR)
     def on_error(self, state: State, exc: Exception, step: Step, index: int) -> None:
+        payload = state.as_dict()
+        payload["step_index"] = index
+        payload["error"] = str(exc)
+
         self.bus.publish(
             Event(
                 PipelineEvent.ON_ERROR,
                 self._label(step),
-                constraints={"index": index, "error": repr(exc)},
-                state=self._ctx(state),
+                payload=self._payload(payload),
             )
         )
 
@@ -180,7 +199,7 @@ class FitAwarePipeline(Pipeline):
 
     def __init__(
         self,
-        *args: Any,
+        steps: Sequence[Step],
         refit: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -190,7 +209,7 @@ class FitAwarePipeline(Pipeline):
         """
         self.refit = refit
         self._is_fitted = False
-        super().__init__(*args, **kwargs)
+        super().__init__(steps, **kwargs)
 
     @Pipeline.hook(PipelineEvent.PIPELINE_START, priority=1)
     def _fit_on_start(self, state: State) -> None:
@@ -213,6 +232,12 @@ class FitAwarePipeline(Pipeline):
 class FitAwareObservablePipeline(FitAwarePipeline, ObservablePipeline):
     """FitAwarePipeline that also publishes events."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        steps: Sequence[Step],
+        bus: Optional[EventBus] = None,
+        refit: bool = False,
+        **kwargs: Any,
+    ) -> None:
         # cooperative MRO: both parents call super().__init__
-        super().__init__(*args, **kwargs)
+        super().__init__(steps, bus=bus, refit=refit, **kwargs)

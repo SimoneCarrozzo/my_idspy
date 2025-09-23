@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Hashable, Literal, Tuple
 
 import pandas as pd
+import numpy as np
 
 from ..events import Event
 from ..bus import BaseHandler
@@ -31,7 +32,7 @@ class Logger(BaseHandler):
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
     level: int = logging.INFO
     as_json: bool = False
-    max_constraints_chars: int = 1000
+    max_chars: int = 2000
 
     def handle(self, event: Event) -> None:
         if self.as_json:
@@ -40,21 +41,18 @@ class Logger(BaseHandler):
                 "type": event.type,
                 "id": event.id,
                 "ts": event.timestamp.isoformat(),
-                "constraints": dict(event.constraints),
-                "state_keys": list(event.state.keys()),
+                "payload_keys": list(event.payload.keys()),
             }
             self.logger.log(self.level, json.dumps(rec, default=str))
         else:
-            constraints_str = _repr_truncated(
-                dict(event.constraints), self.max_constraints_chars
-            )
+            payload_str = _repr_truncated(event.payload.keys(), self.max_chars)
             self.logger.log(
                 self.level,
-                "EVENT type=%s id=%s ts=%s | constraints=%s",
+                "EVENT type=%s id=%s ts=%s | payload=%s",
                 str(event.type),
                 event.id,
                 _ts_compact(event.timestamp),
-                constraints_str,
+                payload_str,
             )
 
     def can_handle(self, event: Event) -> bool:
@@ -133,9 +131,10 @@ class DataFrameProfiler(BaseHandler):
     key: str = "data.root"
     deep_memory: bool = True
     include_index: bool = False
+    max_chars: int = 2000
 
     def _pick(self, event: Event) -> Any:
-        return event.state.get(self.key)
+        return event.payload.get(self.key)
 
     def handle(self, event: Event) -> None:
         df = self._pick(event)
@@ -152,6 +151,7 @@ class DataFrameProfiler(BaseHandler):
                 cols,
                 _fmt_bytes(mem),
                 nans,
+                _repr_truncated(df.dtypes.to_dict(), self.max_chars),
             )
         except Exception:
             self.logger.exception("DATAFRAME error type=%s id=%s", event.type, event.id)

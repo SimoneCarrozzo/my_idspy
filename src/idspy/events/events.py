@@ -24,28 +24,25 @@ class Event:
 
     type: str
     id: str
-    constraints: Mapping[str, Any] = field(default_factory=lambda: EMPTY_MAP)
-    state: Mapping[str, Any] = field(default_factory=lambda: EMPTY_MAP)
+    payload: Mapping[str, Any] = field(default_factory=lambda: EMPTY_MAP)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "constraints", _ro(self.constraints))
-        object.__setattr__(self, "state", _ro(self.state))
+        object.__setattr__(self, "payload", _ro(self.payload))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> Dict[str, Any]:
         return {
             "type": self.type,
             "id": self.id,
-            "constraints": dict(self.constraints),
-            "state": dict(self.state),
+            "payload": dict(self.payload),
             "timestamp": self.timestamp.isoformat(),
         }
 
     def __repr__(self) -> str:
-        keys = list(self.constraints)
+        keys = list(self.payload)
         head = keys[:5]
         more = f", +{len(keys) - 5} keys" if len(keys) > 5 else ""
-        return f"Event({self.type!r}, id={self.id!r}, constraint_keys={head!r}{more})"
+        return f"Event({self.type!r}, id={self.id!r}, payload_keys={head!r}{more})"
 
 
 def only_id(event_id: str) -> EventPredicate:
@@ -58,11 +55,11 @@ def id_startswith(prefix: str) -> EventPredicate:
     return lambda e: e.id.startswith(prefix)
 
 
-def has_constraint_key(key: str) -> EventPredicate:
-    """Accept events that carry a certain constraint key."""
-    return lambda e: key in e.constraints
+def has_payload_key(key: str) -> EventPredicate:
+    """Accept events that carry a certain payload key."""
+    return lambda e: key in e.payload
 
 
-def constraint_equals(key: str, value: object) -> EventPredicate:
-    """Accept events where a constraint key equals a specific value."""
-    return lambda e: e.constraints.get(key) == value
+def payload_equals(key: str, value: object) -> EventPredicate:
+    """Accept events where a payload key equals a specific value."""
+    return lambda e: e.payload.get(key) == value

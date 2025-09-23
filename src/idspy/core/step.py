@@ -16,10 +16,16 @@ class Step(ABC):
     - Abstract methods must be implemented by subclasses and must be decorated for automatic state handling.
     """
 
-    def __init__(self, name: Optional[str] = None, scope: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        in_scope: Optional[str] = None,
+        out_scope: Optional[str] = None,
+    ) -> None:
         """Initialize a pipeline step. The scope is used to isolate state keys."""
         self.name = name or self.__class__.__name__
-        self.scope = scope
+        self.in_scope = in_scope
+        self.out_scope = out_scope
 
     @classmethod
     def requires(cls, **requirements: Type[Any]):
@@ -35,7 +41,9 @@ class Step(ABC):
 
             @wraps(func)
             def wrapper(self, state: State, **kwargs):
-                view = state.view(self.scope, strict=False) if self.scope else state
+                view = (
+                    state.view(self.in_scope, strict=False) if self.in_scope else state
+                )
 
                 filled: Dict[str, Any] = {}
 
@@ -64,7 +72,7 @@ class Step(ABC):
                         filled[key] = default_val
                     else:
                         raise KeyError(
-                            f"Missing required state/key '{key}' for step '{self.name}'"
+                            f"Missing required state/key '{key}' for step '{self.name}' with scope '{self.in_scope}'"
                         )
 
                 kwargs.update(filled)
@@ -99,7 +107,9 @@ class Step(ABC):
                         f"@Step.provides, got {type(result).__name__}"
                     )
 
-                view = state.view(self.scope, strict=True) if self.scope else state
+                view = (
+                    state.view(self.out_scope, strict=True) if self.out_scope else state
+                )
 
                 # validate and persist each declared key
                 for key, typ in outputs.items():
@@ -235,7 +245,12 @@ class ContextualStep(Step, ABC):
 
     def __init__(self, step: Step, **kwargs) -> None:
         self.step = step
-        super().__init__(name=f"contextual({step.name})", scope=step.scope, **kwargs)
+        super().__init__(
+            name=f"contextual({step.name})",
+            in_scope=step.in_scope,
+            out_scope=step.out_scope,
+            **kwargs,
+        )
 
     @abstractmethod
     def context(self, state: State) -> Any:

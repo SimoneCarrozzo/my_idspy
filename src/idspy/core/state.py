@@ -80,9 +80,13 @@ class State:
         """Return inferred types mapping."""
         return {k: type(v) for k, v in self._data.items()}
 
-    def as_dict(self) -> Mapping[str, Any]:
+    def read_only_view(self) -> Mapping[str, Any]:
         """Return a read-only view of the internal data."""
         return MappingProxyType(self._data)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a shallow copy of the internal data as a standard dictionary."""
+        return dict(self._data)
 
     # ---------- views ----------
 
@@ -97,7 +101,8 @@ class State:
         return StateView(self, prefix, strict)
 
     def __repr__(self) -> str:
-        return f"State(data={self.as_dict()})"
+        keys_types = [(k, type(v).__name__) for k, v in self._data.items()]
+        return f"State(keys_and_types={keys_types})"
 
 
 class StateView:
@@ -192,12 +197,17 @@ class StateView:
                 result[k] = t
         return result
 
-    def as_dict(self) -> Mapping[str, Any]:
+    def read_only_view(self) -> Mapping[str, Any]:
         """Return a read-only view of the data in this view (bare keys)."""
         return MappingProxyType({k: v for k, v in self.items()})
 
+    def as_dict(self) -> dict[str, Any]:
+        """Return a shallow copy of the data in this view as a standard dictionary."""
+        return dict({k: v for k, v in self.items()})
+
     def __repr__(self) -> str:
-        return f"StateView(prefix='{self._p}', strict={self._strict}, items={self.as_dict()})"
+        keys_types = [(k, type(v).__name__) for k, v in self._data.items()]
+        return f"StateView(prefix='{self._p}', strict={self._strict}, keys_and_types={keys_types})"
 
 
 StatePredicate = Callable[[State | StateView], bool]
