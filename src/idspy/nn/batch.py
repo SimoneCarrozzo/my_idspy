@@ -95,19 +95,21 @@ def default_collate(samples: list[Mapping[str, Any]]) -> Batch:
     first_features = samples[0]["features"]
 
     def stack(ts: list[Tensor]) -> Tensor:
-        shapes = {tuple(t.shape) for t in ts}
-        if len(shapes) != 1:
-            raise ValueError(f"different shapes: {shapes}")
         return torch.stack(ts, 0)
 
     if isinstance(first_features, Mapping):
         keys = list(first_features.keys())
-        features = {k: stack([s["features"][k] for s in samples]) for k in keys}
+        feature_lists = {k: [] for k in keys}
+        for s in samples:
+            for k in keys:
+                feature_lists[k].append(s["features"][k])
+        features = {k: stack(feature_lists[k]) for k in keys}
     else:
-        features = stack([s["features"] for s in samples])
+        feature_list = [s["features"] for s in samples]
+        features = stack(feature_list)
 
     target = None
     if "target" in samples[0] and samples[0]["target"] is not None:
-        target = stack([torch.as_tensor(s["target"]) for s in samples]).view(-1)
+        target = stack([s["target"] for s in samples]).view(-1)
 
     return Batch(features=features, target=target)

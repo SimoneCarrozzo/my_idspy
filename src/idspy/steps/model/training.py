@@ -7,7 +7,7 @@ from ...core.step import Step
 from ...core.state import State
 from ...nn.models.base import BaseModel
 from ...nn.losses.base import BaseLoss
-from .helpers import run_epoch
+from ...nn.helpers import run_epoch
 
 
 class TrainOneEpoch(Step):

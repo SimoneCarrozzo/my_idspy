@@ -3,13 +3,14 @@ from typing import Any, Callable, Dict, Optional
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from ...core.state import State
 from ...core.step import Step
-from ...nn.models.base import BaseModel
+from ...nn.models.base import BaseModel, ModelOutput
 from ...nn.losses.base import BaseLoss
 from ...nn.batch import ensure_batch
-from .helpers import run_epoch
+from ...nn.helpers import run_epoch
 
 
 class ValidateOneEpoch(Step):
@@ -125,9 +126,9 @@ class ForwardOnce(Step):
         batch = batch.to(device, non_blocking=True)
 
         with torch.no_grad():
-            out = model(batch.features)
+            out: ModelOutput = model(batch.features)
 
-        if self.to_cpu and torch.is_tensor(out):
+        if self.to_cpu and torch.is_tensor(out.logits):
             out = out.detach().cpu().numpy()
 
         return {"output": out}
@@ -155,8 +156,8 @@ class MakePredictions(Step):
     @Step.provides(predictions=np.ndarray)
     def run(self, state: State, outputs: list) -> Optional[Dict[str, Any]]:
         predictions = []
-        for output in outputs:
-            curr_pred = self.pred_fn(output)
+        for output in tqdm(outputs, desc="Making predictions", unit="batch"):
+            curr_pred = self.pred_fn(output.logits)
             if not torch.is_tensor(curr_pred):
                 raise TypeError(
                     f"Expected tensor predictions from 'pred_fn' for step '{self.name}'."
