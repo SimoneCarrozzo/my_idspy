@@ -14,7 +14,7 @@ class BuildDataLoader(Step):
         batch_size: int = 32,
         shuffle: bool = False,
         num_workers: int = 0,
-        pin_memory: bool = True,
+        pin_memory: bool = False,
         persistent_workers: bool = False,
         drop_last: bool = False,
         collate_fn: Optional[Callable] = None,

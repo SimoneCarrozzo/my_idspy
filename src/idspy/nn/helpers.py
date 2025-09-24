@@ -10,17 +10,6 @@ from .losses.base import BaseLoss
 from .batch import Batch, ensure_batch
 
 
-def detach_to_cpu(x):
-    if torch.is_tensor(x):
-        return x.detach().cpu()
-    if isinstance(x, dict):
-        return {k: detach_to_cpu(v) for k, v in x.items()}
-    if isinstance(x, (list, tuple)):
-        t = [detach_to_cpu(v) for v in x]
-        return type(x)(t) if isinstance(x, tuple) else t
-    return x
-
-
 def run_epoch(
     desc: str,
     log_prefix: str,
@@ -57,7 +46,7 @@ def run_epoch(
 
             outputs: ModelOutput = model(batch.features)
             if save_outputs:
-                outputs_list.append(detach_to_cpu(outputs))
+                outputs_list.append(outputs.detach())
 
             loss = (
                 loss_fn(*model.for_loss(outputs, batch))

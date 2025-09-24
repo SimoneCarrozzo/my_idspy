@@ -48,7 +48,7 @@ class ValidateOneEpoch(Step):
         outputs=list,
         epoch=int,
     )
-    @Step.provides(model=BaseModel, history=list, outputs=list[ModelOutput], epoch=int)
+    @Step.provides(model=BaseModel, history=list, outputs=list, epoch=int)
     def run(
         self,
         state: State,
@@ -152,9 +152,9 @@ class MakePredictions(Step):
             out_scope=out_scope,
         )
 
-    @Step.requires(outputs=list[ModelOutput])
+    @Step.requires(outputs=list)
     @Step.provides(predictions=np.ndarray)
-    def run(self, state: State, outputs: list[ModelOutput]) -> Optional[Dict[str, Any]]:
+    def run(self, state: State, outputs: list) -> Optional[Dict[str, Any]]:
         predictions = []
         for output in tqdm(outputs, desc="Making predictions", unit="batch"):
             curr_pred = self.pred_fn(output.logits)

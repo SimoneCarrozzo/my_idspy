@@ -1,13 +1,43 @@
 from typing import Any, Dict, Mapping, NamedTuple, Optional, Tuple
 
 from torch import nn, Tensor
+import torch
 from ..batch import Batch
 
 
 class ModelOutput(NamedTuple):
     logits: Tensor
     latents: Optional[Tensor] = None
-    extras: Optional[Dict[str, Any]] = None
+    extras: Optional[Dict[str, Tensor]] = None
+
+    def detach(self) -> "ModelOutput":
+        return ModelOutput(
+            logits=self.logits.detach(),
+            latents=None if self.latents is None else self.latents.detach(),
+            extras=(
+                None
+                if self.extras is None
+                else {k: v.detach() for k, v in self.extras.items()}
+            ),
+        )
+
+    def to(self, device: torch.device, non_blocking: bool = True) -> "ModelOutput":
+        return ModelOutput(
+            logits=self.logits.to(device, non_blocking=non_blocking),
+            latents=(
+                None
+                if self.latents is None
+                else self.latents.to(device, non_blocking=non_blocking)
+            ),
+            extras=(
+                None
+                if self.extras is None
+                else {
+                    k: v.to(device, non_blocking=non_blocking)
+                    for k, v in self.extras.items()
+                }
+            ),
+        )
 
 
 class BaseModel(nn.Module):
