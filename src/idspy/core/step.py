@@ -1,9 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, Optional, Set, Any, override, Callable
+# modificato da
+# from typing import Iterable, Optional, Set, Any, override, Callable
+# A:
+from typing import Iterable, Optional, Set, Any, Callable
+# aggiunto per me
+from typing_extensions import override
 
 from .state import State, StatePredicate
 
-
+#tale classe rappresenta un singolo passo / trasformazione in una pipeline di elaborazione dati.
+#Ogni passo può avere requisiti (requires) e fornire risultati (provides) che vengono gestiti tramite uno stato condiviso (State).
+#La classe supporta anche funzionalità avanzate come l'esecuzione condizionale, il fitting di modelli e l'esecuzione ripetuta di passi.
 class Step(ABC):
     """Abstract pipeline step."""
 
@@ -27,7 +34,8 @@ class Step(ABC):
     def run(self, state: State) -> None:
         """Mutate state and/or call services."""
         ...
-
+    #tale metodo esegue un controllo sugli input richiesti (requires) prima di eseguire il passo
+    #e un controllo sugli output forniti (provides) dopo l'esecuzione così da garantire che il passo rispetti i suoi contratti.
     def __call__(self, state: State) -> None:
         """Validate inputs, run, validate outputs."""
         self.check(state, self.requires)
@@ -64,7 +72,10 @@ class ConditionalStep(Step, ABC):
             return
         super().__call__(state)
 
-
+#tale classe estende Step per rappresentare un passo che richiede un processo di fitting prima di essere eseguito.
+#Introduce un metodo astratto fit_impl che deve essere implementato dalle sottoclassi per definire il comportamento di fitting specifico.
+#La classe tiene traccia dello stato di fitting tramite la proprietà is_fitted e garantisce che il passo non possa essere eseguito se non è stato fittato.
+#(per fitting s'intende il processo di addestramento o adattamento di un modello o di una trasformazione ai dati contenuti nello stato)
 class FitAwareStep(Step, ABC):
     """Step that must be fitted before running."""
 

@@ -7,7 +7,11 @@ from ..common.predicate import Predicate
 _SEPARATOR = "."
 StatePredicate = Predicate["State"]
 
-
+#questa classe fornisce una vista mutabile su un dizionario, limitata a chiavi che condividono un prefisso specifico.
+#Ad esempio, se il prefisso è "config", allora questa vista permetterà di accedere,
+# modificare o eliminare solo le chiavi che iniziano con "config.".
+#Questo è utile per organizzare e gestire i dati in un dizionario più grande, 
+# permettendo di lavorare con sottoinsiemi di dati in modo più strutturato.
 class ScopedView(MutableMapping[str, Any]):
     """Mutable view over keys under a given prefix."""
 
@@ -61,9 +65,16 @@ class ScopedView(MutableMapping[str, Any]):
         more = "..." if len(keys) > 5 else ""
         return f"ScopedView(prefix={self._prefix!r}, size={len(keys)}, keys=[{preview}{more}])"
 
-
+#La classe State è una specie di dizionario intelligente, usato per passare informazioni 
+#tra gli step della pipeline (tipo DropNulls, FrequencyMap, ecc.).
+#Ogni step legge e scrive dentro State.
+#Le chiavi sono stringhe (es. "data.root", "mapping.categorical").
+#I valori possono essere DataFrame, mapping, configurazioni, ecc.
+#È come la “memoria condivisa” che collega tutte le trasformazioni.
 class State(MutableMapping[str, Any]):
-    """Mutable key-value store with readonly and scoped views."""
+    """Mutable key-value store with readonly and scoped views.""" 
+    #tale classe implementa un dizionario mutabile con viste in sola lettura e con ambito limitato.
+    #viene usata per memorizzare e condividere informazioni tra vari componenti di un sistema.
 
     __slots__ = ("_data",)
 
@@ -143,3 +154,8 @@ def key_is_truthy(key: str) -> StatePredicate:
 def key_is_falsy(key: str) -> StatePredicate:
     """Accept states where a key does not exist or its value is falsy."""
     return lambda state: not state.get(key)
+
+#5. Risultato intuitivo
+#State → un “contenitore centrale” con i dati della pipeline.
+#scope("data") → ci fa accedere solo ai dati sotto "data.".
+#Predicati → piccoli check automatici che dicono “ok, i dati sono pronti per questo step”.

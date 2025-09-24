@@ -10,9 +10,14 @@ class ColumnRole(Enum):
 
     NUMERICAL = "numerical"
     CATEGORICAL = "categorical"
-    TARGET = "target"
-    FEATURES = "features"
-
+    TARGET = "target"   #colonne di output da predire
+    FEATURES = "features"   #colonne di input usate per predire il target contiene numeriche+categoriche ma non target
+    
+    #questo metodo che segue essenzialmente converte una stringa in un membro dell'enum ColumnRole.
+    #Se la stringa non corrisponde a nessun membro, solleva un KeyError.
+    #Questo è utile per garantire che i ruoli delle colonne siano sempre uno dei valori predefiniti e validi.
+    #Ad esempio, se si passa "numerical", restituirà ColumnRole.NUMERICAL.
+    #Se si passa "invalid_role", solleverà un errore.
     @classmethod
     def from_name(cls, name: Union[str, "ColumnRole"]) -> "ColumnRole":
         """Coerce a string or enum to ColumnRole."""
@@ -24,7 +29,10 @@ class ColumnRole(Enum):
                 return member
         raise KeyError(f"Unknown role: {name}")
 
-
+#quest'altra classe invece serve per memorizzare e gestire i ruoli (tipi) delle colonne in un DataFrame.
+#Permette di aggiungere, aggiornare e rimuovere colonne da ruoli specifici, come numeriche, categoriali, target e features.
+#Garantisce che una colonna appartenga a un solo ruolo alla volta (esclusività) e mantiene l'ordine delle colonne.
+#Può anche rimuovere automaticamente le colonne che non esistono più nel DataFrame.
 @dataclass(slots=True)
 class Schema:
     """Store roles (types) of dataframe columns."""
@@ -117,7 +125,7 @@ class Schema:
     def features(self) -> List[str]:
         return self.roles[ColumnRole.FEATURES]
 
-    def prune_missing(self, existing: pd.Index) -> None:
+    def prune_missing(self, existing: pd.Index) -> None:    
         """Remove columns not present in dataframe."""
         # Convert to set for O(1) lookup instead of O(n) for each column
         existing_set = set(existing)

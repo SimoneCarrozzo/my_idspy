@@ -9,7 +9,10 @@ logger = logging.getLogger(__name__)
 Handler = Callable[[Event], None]
 Predicate = Callable[[Event], bool]
 
-
+#tale metodo rappresenta una singola iscrizione a un evento sul bus.
+#è dotato di un callback (funzione da chiamare quando l'evento viene pubblicato),
+#un predicato opzionale (funzione che filtra gli eventi) e 
+#un token unico (intero) per identificare l'iscrizione e permettere la cancellazione.
 @dataclass(frozen=True, slots=True)
 class _Entry:
     """Subscription entry."""
@@ -18,7 +21,10 @@ class _Entry:
     predicate: Optional[Predicate]
     token: int  # unique id for unsubscription
 
-
+#tale classe implementa un bus di eventi sincrono minimale.
+#Permette di iscriversi a eventi specifici o a tutti gli eventi,
+#di pubblicare eventi e di gestire le iscrizioni tramite token unici.
+#Quando un evento viene pubblicato, viene inviato a tutti i sottoscrittori registrati che soddisfano il predicato (se presente).
 class EventBus:
     """Minimal synchronous event bus."""
 

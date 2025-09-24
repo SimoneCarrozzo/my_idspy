@@ -8,7 +8,10 @@ from ..common.predicate import Predicate
 EMPTY_MAP: Final[Mapping[str, Any]] = MappingProxyType({})
 EventPredicate = Predicate["Event"]
 
-
+#tale metodo converte un mapping (dizionario) in una versione di sola lettura.
+#Se il mapping è None, restituisce una costante EMPTY_MAP che rappresenta un mapping vuoto.
+#Se il mapping è già una MappingProxyType (già di sola lettura), lo restituisce così com'è.
+#Altrimenti, crea una nuova MappingProxyType a partire da una copia del mapping originale.
 def _ro(mapping: Mapping[str, Any] | None) -> Mapping[str, Any]:
     """Readonly mapping proxy (EMPTY_MAP if None)."""
     if mapping is None:
@@ -17,7 +20,13 @@ def _ro(mapping: Mapping[str, Any] | None) -> Mapping[str, Any]:
         return mapping
     return MappingProxyType(dict(mapping))
 
-
+#tale classe rappresenta un evento immutabile con attributi come tipo, id, payload, stato e timestamp.
+#Fornisce metodi per convertire l'evento in un dizionario e una rappresentazione stringa personalizzata.
+#Nello specifico, dispone di diversi metodi, che si occupano rispettivamente di:
+#- only_id: accettare solo eventi con un ID specifico (pipeline/step).
+#- id_startswith: accettare eventi il cui ID inizia con un prefisso dato.
+#- has_payload_key: accettare eventi che contengono una certa chiave nel payload.
+#- payload_equals: accettare eventi in cui una chiave del payload è uguale a un valore specifico. 
 @dataclass(frozen=True, slots=True)
 class Event:
     """Immutable event."""

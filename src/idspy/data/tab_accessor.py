@@ -8,6 +8,19 @@ from .schema import Schema, ColumnRole
 from .partition import Partition, PartitionName
 from ..common.profiler import time_profiler
 
+#Descrizione precisa accurata chiara e semplice di ciò che fa la classe TabAccessor
+#La classe TabAccessor è un'estensione personalizzata di un DataFrame di pandas 
+#che aggiunge funzionalità specifiche per la gestione dello schema dei dati e delle partizioni.
+#Essa consente di definire e manipolare i ruoli delle colonne (come numeriche, categoriali, target e features) 
+# e di gestire partizioni dei dati (come training, validation e test) direttamente all'interno del DataFrame.
+#Inoltre, fornisce viste filtrate del DataFrame basate sui ruoli delle colonne e sulle partizioni,
+# mantenendo sempre la coerenza con lo schema e le partizioni definite.
+#i metodi che in questa classe svologono i ruoli principali sono:
+#- set_schema: per definire o aggiornare lo schema delle colonne.
+#- add_role e update_role: per aggiungere o modificare i ruoli delle colonne.
+#- set_partitions_from_labels e set_partitions_from_positions: per definire le partizioni dei dati.
+#- get_partition: per ottenere una vista del DataFrame basata su una partizione specifica.
+#- proprietà come features, target, numerical e categorical per ottenere viste filtrate del DataFrame.
 
 @register_dataframe_accessor("tab")
 class TabAccessor:

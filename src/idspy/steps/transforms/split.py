@@ -2,8 +2,8 @@ import pandas as pd
 
 from ...core.state import State
 from ...core.step import Step
-from ...data.partition import random_split, stratified_split
-from ...steps.helpers import validate_instance
+from ...data.partition import random_split, stratified_split    #funzioni per suddividere DataFrame in train/val/test calcolando gli indici delle 3 partizioni
+from ...steps.helpers import validate_instance  #funzione helper per controllare che l’oggetto sia un DataFrame
 
 
 def _validate_sizes(step: str, train: float, val: float, test: float) -> None:
@@ -14,7 +14,9 @@ def _validate_sizes(step: str, train: float, val: float, test: float) -> None:
     total = train + val + test
     if abs(total - 1.0) > 1e-9:
         raise ValueError(f"{step}: sizes must sum to 1.0, got {total}.")
-
+#tutta questa prima funzione serve per validare i parametri di split (train,val,test) che devono essere tra 0 e 1 e 
+# controlla che la somma sia esattamente 1 (o molto vicino, tolleranza 1e-9).
+#Serve a evitare errori logici nella definizione delle partizioni.
 
 class RandomSplit(Step):
     """Random split into train/val/test."""
@@ -36,24 +38,24 @@ class RandomSplit(Step):
         self.test_size = test_size
         self.random_state = random_state
 
-        _validate_sizes(name or "random_split", train_size, val_size, test_size)
+        _validate_sizes(name or "random_split", train_size, val_size, test_size)    #la funzione di prima che controlla le proporzioni dei parametri
 
         super().__init__(
             name=name or "random_split",
             requires=[self.dataframe_in],
-            provides=[self.dataframe_out, "mapping.split"],
-        )
+            provides=[self.dataframe_out, "mapping.split"], #fornisce il DataFrame di output e una mappatura delle partizioni
+        )                                                   #tramite "mapping.split" si può accedere alla mappatura delle partizioni create (train/val/test)
 
     def run(self, state: State) -> None:
         dataframe = state[self.dataframe_in]
         validate_instance(dataframe, pd.DataFrame, self.name)
 
-        if dataframe.empty:
+        if dataframe.empty: #se il DataFrame è vuoto, non fa nulla e assegna una mappatura vuota
             state["mapping.split"] = {}
             state[self.dataframe_out] = dataframe
             return
 
-        split_mapping = random_split(
+        split_mapping = random_split(       #divide casualmente il DataFrame in partizioni train/val/test
             dataframe,
             train_size=self.train_size,
             val_size=self.val_size,
@@ -61,9 +63,9 @@ class RandomSplit(Step):
             random_state=self.random_state,
         )
 
-        dataframe.tab.set_partitions_from_labels(split_mapping)
-        state["mapping.split"] = split_mapping
-        state[self.dataframe_out] = dataframe
+        dataframe.tab.set_partitions_from_labels(split_mapping)  #imposta le partizioni del DataFrame usando le etichette calcolate sullo split_mapping
+        state["mapping.split"] = split_mapping              #salva la mappatura delle partizioni nello State sotto la chiave "mapping.split"
+        state[self.dataframe_out] = dataframe               #salva il DataFrame con le partizioni nello State usando la chiave specificata in dataframe_out
 
 
 class StratifiedSplit(Step):
@@ -105,10 +107,10 @@ class StratifiedSplit(Step):
             state[self.dataframe_out] = dataframe
             return
 
-        if not self.class_column:
+        if not self.class_column:   #se non è specificata la colonna di classe, solleva un errore
             raise ValueError("stratified_split: 'class_column' must be provided.")
 
-        split_mapping = stratified_split(
+        split_mapping = stratified_split(   #divide il DataFrame in partizioni train/val/test mantenendo la distribuzione delle classi
             dataframe,
             self.class_column,
             train_size=self.train_size,
@@ -122,7 +124,8 @@ class StratifiedSplit(Step):
         state[self.dataframe_out] = dataframe
 
 
-class AssignSplitPartitions(Step):
+class AssignSplitPartitions(Step):  #estrae le partizioni train/val/test dal DataFrame già splittato e le salva nello State con chiavi separate
+    """Assign split partitions to separate keys in the State."""
     def __init__(
         self,
         dataframe_in: str = "data.root",
@@ -132,20 +135,20 @@ class AssignSplitPartitions(Step):
         self.dataframe_in = dataframe_in
         self.dataframe_out = dataframe_out
 
-        super().__init__(
-            name=name or "assign_split_partitions",
-            requires=[self.dataframe_in],
-            provides=[
-                self.dataframe_out + ".train",
-                self.dataframe_out + ".val",
-                self.dataframe_out + ".test",
+        super().__init__(           #chiamata al costruttore della superclasse Step dichiarando:
+            name=name or "assign_split_partitions",     #nome dello step (default "assign_split_partitions")
+            requires=[self.dataframe_in],           #richiede il DataFrame di input / dati di input richiesti dallo step
+            provides=[                              #fornisce i DataFrame di output / dati di output prodotti dallo step
+                self.dataframe_out + ".train",      #chiave per il DataFrame di training
+                self.dataframe_out + ".val",        #chiave per il DataFrame di validation
+                self.dataframe_out + ".test",       #chiave per il DataFrame di test
             ],
         )
 
-    def run(self, state: State) -> None:
-        dataframe = state[self.dataframe_in]
+    def run(self, state: State) -> None:        #implementazione concreta del metodo astratto run di Step
+        dataframe = state[self.dataframe_in]    #prende il DataFrame dallo State usando la chiave specificata in dataframe_in
         validate_instance(dataframe, pd.DataFrame, self.name)
 
-        state[self.dataframe_out + ".train"] = dataframe.tab.train
-        state[self.dataframe_out + ".val"] = dataframe.tab.val
-        state[self.dataframe_out + ".test"] = dataframe.tab.test
+        state[self.dataframe_out + ".train"] = dataframe.tab.train  #salva il DataFrame di training nello State usando la chiave specificata in dataframe_out + ".train"
+        state[self.dataframe_out + ".val"] = dataframe.tab.val      #salva il DataFrame di validation nello State usando la chiave specificata in dataframe_out + ".val"
+        state[self.dataframe_out + ".test"] = dataframe.tab.test    #salva il DataFrame di test nello State usando la chiave specificata in dataframe_out + ".test"
