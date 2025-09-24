@@ -44,11 +44,11 @@ class Schema:
             return [cols]
         return [c for c in cols]
 
-    roles: Dict[ColumnRole, List[str]] = field(
+    roles: Dict[ColumnRole, Union[List[str], str]] = field(
         default_factory=lambda: {
             ColumnRole.NUMERICAL: [],
             ColumnRole.CATEGORICAL: [],
-            ColumnRole.TARGET: [],
+            ColumnRole.TARGET: "",
             ColumnRole.FEATURES: [],
         }
     )
@@ -61,14 +61,34 @@ class Schema:
         role = ColumnRole.from_name(role)
         new_cols = self._as_list(cols)
 
-        # Remove new_cols from all other roles except FEATURES
-        for r in self.roles:
-            if r != role and r != ColumnRole.FEATURES:
-                self.roles[r] = [c for c in self.roles[r] if c not in new_cols]
+        # Handle TARGET role differently (single string)
+        if role == ColumnRole.TARGET:
+            if len(new_cols) > 1:
+                raise ValueError("TARGET role can only contain one column")
+            # Remove the column from all other roles except FEATURES
+            col_to_add = new_cols[0] if new_cols else ""
+            for r in self.roles:
+                if (
+                    r != role
+                    and r != ColumnRole.FEATURES
+                    and isinstance(self.roles[r], list)
+                ):
+                    self.roles[r] = [c for c in self.roles[r] if c != col_to_add]
+            self.roles[role] = col_to_add
+        else:
+            # Remove new_cols from all other roles except FEATURES
+            for r in self.roles:
+                if r != role and r != ColumnRole.FEATURES:
+                    if r == ColumnRole.TARGET:
+                        # Remove from TARGET if it matches
+                        if self.roles[r] in new_cols:
+                            self.roles[r] = ""
+                    else:
+                        self.roles[r] = [c for c in self.roles[r] if c not in new_cols]
 
-        # Add to the specified role
-        seen = set(self.roles[role])
-        self.roles[role].extend([c for c in new_cols if c not in seen])
+            # Add to the specified role
+            seen = set(self.roles[role])
+            self.roles[role].extend([c for c in new_cols if c not in seen])
 
         # Auto-manage FEATURES role if not directly modifying it
         if role != ColumnRole.FEATURES:
@@ -81,14 +101,34 @@ class Schema:
         role = ColumnRole.from_name(role)
         new_cols = self._as_list(cols)
 
-        # Remove new_cols from all other roles except FEATURES
-        for r in self.roles:
-            if r != role and r != ColumnRole.FEATURES:
-                self.roles[r] = [c for c in self.roles[r] if c not in new_cols]
+        # Handle TARGET role differently (single string)
+        if role == ColumnRole.TARGET:
+            if len(new_cols) > 1:
+                raise ValueError("TARGET role can only contain one column")
+            # Remove the column from all other roles except FEATURES
+            col_to_set = new_cols[0] if new_cols else ""
+            for r in self.roles:
+                if (
+                    r != role
+                    and r != ColumnRole.FEATURES
+                    and isinstance(self.roles[r], list)
+                ):
+                    self.roles[r] = [c for c in self.roles[r] if c != col_to_set]
+            self.roles[role] = col_to_set
+        else:
+            # Remove new_cols from all other roles except FEATURES
+            for r in self.roles:
+                if r != role and r != ColumnRole.FEATURES:
+                    if r == ColumnRole.TARGET:
+                        # Remove from TARGET if it matches
+                        if self.roles[r] in new_cols:
+                            self.roles[r] = ""
+                    else:
+                        self.roles[r] = [c for c in self.roles[r] if c not in new_cols]
 
-        # Set exact new list (order preserved, dedup)
-        seen: set[str] = set()
-        self.roles[role] = [c for c in new_cols if not (c in seen or seen.add(c))]
+            # Set exact new list (order preserved, dedup)
+            seen: set[str] = set()
+            self.roles[role] = [c for c in new_cols if not (c in seen or seen.add(c))]
 
         # Auto-manage FEATURES role if not directly modifying it
         if role != ColumnRole.FEATURES:
@@ -96,16 +136,16 @@ class Schema:
 
     def _update_features_role(self) -> None:
         """Automatically update FEATURES role to include NUMERICAL + CATEGORICAL, excluding TARGET."""
-        target_cols = set(self.roles[ColumnRole.TARGET])
+        target_col = self.roles[ColumnRole.TARGET]
         features_cols = []
 
         # Preserve order: first numerical, then categorical
         for r in (ColumnRole.NUMERICAL, ColumnRole.CATEGORICAL):
-            features_cols.extend([c for c in self.roles[r] if c not in target_cols])
+            features_cols.extend([c for c in self.roles[r] if c != target_col])
 
         self.roles[ColumnRole.FEATURES] = features_cols
 
-    def columns(self, role: Union[ColumnRole, str]) -> List[str]:
+    def columns(self, role: Union[ColumnRole, str]) -> Union[List[str], str]:
         role = ColumnRole.from_name(role)
         return self.roles[role]
 
@@ -118,7 +158,7 @@ class Schema:
         return self.roles[ColumnRole.CATEGORICAL]
 
     @property
-    def target(self) -> List[str]:
+    def target(self) -> str:
         return self.roles[ColumnRole.TARGET]
 
     @property
@@ -136,11 +176,17 @@ class Schema:
             if r == ColumnRole.FEATURES:
                 continue
 
-            # Use list comprehension with set lookup for better performance
-            keep = [c for c in cols if c in existing_set]
-            if len(keep) != len(cols):
-                missing.extend([c for c in cols if c not in existing_set])
-            self.roles[r] = keep
+            if r == ColumnRole.TARGET:
+                # Handle TARGET as string
+                if cols and cols not in existing_set:
+                    missing.append(cols)
+                    self.roles[r] = ""
+            else:
+                # Use list comprehension with set lookup for better performance
+                keep = [c for c in cols if c in existing_set]
+                if len(keep) != len(cols):
+                    missing.extend([c for c in cols if c not in existing_set])
+                self.roles[r] = keep
 
         # Update FEATURES role after pruning other roles
         self._update_features_role()

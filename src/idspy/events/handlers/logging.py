@@ -4,7 +4,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Hashable, Literal, Tuple
 
+import pandas as pd
+import numpy as np
+
 from ..events import Event
+from ..bus import BaseHandler
 
 
 def _ts_compact(dt: datetime) -> str:
@@ -22,28 +26,26 @@ def _repr_truncated(obj: Any, max_chars: int) -> str:
 
 
 @dataclass(slots=True)
-class Logger:
+class Logger(BaseHandler):
     """Log basic event info (human or JSON)."""
 
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
     level: int = logging.INFO
     as_json: bool = False
-    max_payload_chars: int = 1000  # only for human mode
+    max_chars: int = 2000
 
-    def __call__(self, event: Event) -> None:
+    def handle(self, event: Event) -> None:
         if self.as_json:
             rec = {
                 "kind": "event",
                 "type": event.type,
                 "id": event.id,
                 "ts": event.timestamp.isoformat(),
-                "payload": dict(event.payload),
-                "state_keys": list(event.state.keys()),
+                "payload_keys": list(event.payload.keys()),
             }
-            # default=str to avoid serialization errors on exotic payloads
             self.logger.log(self.level, json.dumps(rec, default=str))
         else:
-            payload_str = _repr_truncated(dict(event.payload), self.max_payload_chars)
+            payload_str = _repr_truncated(event.payload.keys(), self.max_chars)
             self.logger.log(
                 self.level,
                 "EVENT type=%s id=%s ts=%s | payload=%s",
@@ -53,12 +55,15 @@ class Logger:
                 payload_str,
             )
 
+    def can_handle(self, event: Event) -> bool:
+        return True
+
 
 GroupBy = Literal["id", "type", "all"]
 
 
 @dataclass(slots=True)
-class Tracer:
+class Tracer(BaseHandler):
     """Trace time between consecutive events."""
 
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
@@ -76,7 +81,7 @@ class Tracer:
             return event.type
         return "__ALL__"
 
-    def __call__(self, event: Event) -> None:
+    def handle(self, event: Event) -> None:
         k = self._key(event)
         now = event.timestamp
         prev = self._last.get(k)
@@ -103,12 +108,8 @@ class Tracer:
 
         self._last[k] = (event.id, now)
 
-    def reset(self, key: Hashable | None = None) -> None:
-        """Clear tracing state (for a specific key or all)."""
-        if key is None:
-            self._last.clear()
-        else:
-            self._last.pop(key, None)
+    def can_handle(self, event: Event) -> bool:
+        return True
 
 
 def _fmt_bytes(n: int | float) -> str:
@@ -122,7 +123,7 @@ def _fmt_bytes(n: int | float) -> str:
 
 
 @dataclass(slots=True)
-class DataFrameProfiler:
+class DataFrameProfiler(BaseHandler):
     """Profile a DataFrame carried by events."""
 
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__))
@@ -130,28 +131,16 @@ class DataFrameProfiler:
     key: str = "data.root"
     deep_memory: bool = True
     include_index: bool = False
-    max_dtype_items: int = 8  # top-N dtype counts to show
+    max_chars: int = 2000
 
     def _pick(self, event: Event) -> Any:
-        return event.state.get(self.key)
+        return event.payload.get(self.key)
 
-    def __call__(self, event: Event) -> None:
+    def handle(self, event: Event) -> None:
         df = self._pick(event)
-        if df is None:
-            return
         try:
-            # duck-typing to avoid hard dependency on pandas in this module
             rows, cols = getattr(df, "shape", (None, None))
             mem = df.memory_usage(index=self.include_index, deep=self.deep_memory).sum()
-            dtypes = getattr(df, "dtypes", None)
-            dtype_summary = ""
-            if dtypes is not None:
-                vc = dtypes.astype(str).value_counts()  # type: ignore[no-untyped-call]
-                # stable ordering: count desc, dtype name asc
-                items = sorted(vc.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))
-                items = items[: self.max_dtype_items]
-                dtype_summary = ", ".join(f"{dt}:{int(cnt)}" for dt, cnt in items)
-
             nans = df.isna().sum().sum()
 
             self.logger.log(
@@ -162,7 +151,11 @@ class DataFrameProfiler:
                 cols,
                 _fmt_bytes(mem),
                 nans,
-                dtype_summary,
+                _repr_truncated(df.dtypes.to_dict(), self.max_chars),
             )
         except Exception:
             self.logger.exception("DATAFRAME error type=%s id=%s", event.type, event.id)
+
+    def can_handle(self, event: Event) -> bool:
+        df = self._pick(event)
+        return df is not None and isinstance(df, pd.DataFrame)

@@ -34,19 +34,16 @@ class Event:
     type: str
     id: str
     payload: Mapping[str, Any] = field(default_factory=lambda: EMPTY_MAP)
-    state: Mapping[str, Any] = field(default_factory=lambda: EMPTY_MAP)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "payload", _ro(self.payload))
-        object.__setattr__(self, "state", _ro(self.state))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> Dict[str, Any]:
         return {
             "type": self.type,
             "id": self.id,
             "payload": dict(self.payload),
-            "state": dict(self.state),
             "timestamp": self.timestamp.isoformat(),
         }
 

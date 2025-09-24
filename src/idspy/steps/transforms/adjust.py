@@ -1,33 +1,32 @@
+from typing import Any, Dict, Optional
+
 import numpy as np
 import pandas as pd
 
-from ..helpers import validate_instance #funzione helper per controllare che l’oggetto sia un DataFrame
-from ...core.state import State         #contiene tutti i dati e lo stato della pipeline.
-from ...core.step import Step           #classe base di tutti gli step di preprocessing; definisce interfaccia standard (run, requires, provides)
+from ...core.step import Step    #classe base di tutti gli step di preprocessing; definisce interfaccia standard (run, requires, provides)
+from ...core.state import State #contiene tutti i dati e lo stato della pipeline.
 from ...data.tab_accessor import reattach_meta  #funzione per riattaccare informazioni aggiuntive al DataFrame dopo un filtro (utile in Filter).
-
 #DropNulls normalizza e pulisce i dati in un unico step: rimuove tutti i valori problematici per evitare errori negli step successivi
 class DropNulls(Step):  
     """Drop all rows that contain null values, including NaN and ±inf."""
     #dropnull ereditando da Step diventa uno step della pipeline che rimuove righe con valori mancanti (NaN) o infiniti (±inf)
     def __init__(
         self,
-        dataframe_in: str = "data.root",        #nome della chiave nello State dove si trova il DataFrame di input
-        dataframe_out: str | None = None,       #nome della chiave nello State dove salvare il DataFrame di output (se None, sovrascrive l'input)
-        name: str | None = None,                #nome opzionale dello step (se None, usa il nome della classe)
+        in_scope: str = "data",
+        out_scope: str = "data",
+        name: Optional[str] = None,
     ) -> None:
-        self.dataframe_in = dataframe_in
-        self.dataframe_out = dataframe_out or dataframe_in
-
-        super().__init__(                       #chiamata al costruttore della superclasse Step dichiarando:
-            name=name or "drop_nulls",          #nome dello step (default "drop_nulls")
-            requires=[self.dataframe_in],       #richiede il DataFrame di input / dati di input richiesti dallo step
-            provides=[self.dataframe_out],      #fornisce il DataFrame di output / dati di output prodotti dallo step
+        super().__init__(
+            name=name or "drop_nulls",
+            in_scope=in_scope,
+            out_scope=out_scope,
         )
 
-    def run(self, state: State) -> None:        #implementazione concreta del metodo astratto run di Step
-        dataframe = state[self.dataframe_in]    #prende il DataFrame dallo State usando la chiave specificata in dataframe_in
-        validate_instance(dataframe, pd.DataFrame, self.name)       #verifica che l'oggetto sia effettivamente un DataFrame, altrimenti solleva un errore
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        root = root.replace([np.inf, -np.inf], np.nan).dropna()
+        return {"root": root}
 
         dataframe = dataframe.replace([np.inf, -np.inf], np.nan).dropna()   #sostituisce infiniti con NaN e rimuove tutte le righe con NaN
         state[self.dataframe_out] = dataframe                       #salva il DataFrame pulito nello State usando la chiave specificata in dataframe_out
@@ -38,24 +37,24 @@ class Filter(Step):
 
     def __init__(
         self,
-        query: str,     #stringa pandas query per filtrare il DataFrame (es. "age > 30 and income < 50000")
-        dataframe_in: str = "data.root",
-        dataframe_out: str | None = None,
-        name: str | None = None,
+        query: str,
+        in_scope: str = "data",
+        out_scope: str = "data",
+        name: Optional[str] = None,
     ) -> None:
         self.query = query
-        self.dataframe_in = dataframe_in
-        self.dataframe_out = dataframe_out or dataframe_in
 
-        super().__init__(                   #chiamata al costruttore della superclasse Step dichiarando:
-            name=name or "filter",          #nome dello step (default "filter")
-            requires=[self.dataframe_in],   #richiede il DataFrame di input / dati di input richiesti dallo step
-            provides=[self.dataframe_out],  #fornisce il DataFrame di output / dati di output prodotti dallo step
+        super().__init__(
+            name=name or "filter",
+            in_scope=in_scope,
+            out_scope=out_scope,
         )
 
-    def run(self, state: State) -> None:    #implementazione concreta del metodo astratto run di Step
-        dataframe = state[self.dataframe_in]    #prende il DataFrame dallo State usando la chiave specificata in dataframe_in
-        validate_instance(dataframe, pd.DataFrame, self.name)   #verifica che l'oggetto sia effettivamente un DataFrame, altrimenti solleva un errore
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        filtered = root.query(self.query)
+        return {"root": reattach_meta(root, filtered)}
 
         filtered = dataframe.query(self.query)          #applica il filtro  selezionando le righe che soddisfano la condizione
         state[self.dataframe_out] = reattach_meta(dataframe, filtered)  #salva il DataFrame filtrato nello State, riattaccando le informazioni di schema originale
@@ -66,28 +65,19 @@ class Log1p(Step):
 
     def __init__(
         self,
-        dataframe_in: str = "data.root",    #nome della chiave nello State dove si trova il DataFrame di input
-        dataframe_out: str | None = None,
-        name: str | None = None,
+        in_scope: str = "data",
+        out_scope: str = "data",
+        name: Optional[str] = None,
     ) -> None:
-        self.dataframe_in = dataframe_in
-        self.dataframe_out = dataframe_out or dataframe_in
-
         super().__init__(
-            name=name or "log1p",        #nome dello step (default "log1p")
-            requires=[self.dataframe_in],
-            provides=[self.dataframe_out],
+            name=name or "log1p",
+            in_scope=in_scope,
+            out_scope=out_scope,
         )
 
-    def run(self, state: State) -> None:
-        dataframe = state[self.dataframe_in]
-        validate_instance(dataframe, pd.DataFrame, self.name)
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
 
-        dataframe.tab.numerical = np.log1p(dataframe.tab.numerical)
-        state[self.dataframe_out] = dataframe
-
-    #cosa fa il run di questa classe:
-    # Prendi il DataFrame e verifica tipo.
-    # dataframe.tab.numerical → seleziona tutte le colonne numeriche.
-    # np.log1p(...) → calcola log(1+x) su tutti i valori numerici.
-    # Salva risultato nello State.
+        root.tab.numerical = np.log1p(root.tab.numerical)
+        return {"root": root}

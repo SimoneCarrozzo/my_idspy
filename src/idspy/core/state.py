@@ -1,161 +1,259 @@
-from collections.abc import MutableMapping, Iterator
+from collections.abc import Iterator, Mapping
+from typing import Any, Callable, Type, TypeVar
 from types import MappingProxyType
-from typing import Any, Mapping
 
-from ..common.predicate import Predicate
+T = TypeVar("T")
 
-_SEPARATOR = "."
-StatePredicate = Predicate["State"]
 
-#questa classe fornisce una vista mutabile su un dizionario, limitata a chiavi che condividono un prefisso specifico.
-#Ad esempio, se il prefisso è "config", allora questa vista permetterà di accedere,
-# modificare o eliminare solo le chiavi che iniziano con "config.".
-#Questo è utile per organizzare e gestire i dati in un dizionario più grande, 
-# permettendo di lavorare con sottoinsiemi di dati in modo più strutturato.
-class ScopedView(MutableMapping[str, Any]):
-    """Mutable view over keys under a given prefix."""
+class State:
+    """Typed key-value store with dynamic prefix views."""
 
-    __slots__ = ("_data", "_prefix", "_prefix_dot")
+    SEPARATOR = "."
 
-    def __init__(self, data: dict[str, Any], prefix: str):
-        if not isinstance(prefix, str) or not prefix:
-            raise ValueError("prefix must be a non-empty string")
-        if prefix.endswith(_SEPARATOR):
-            raise ValueError(f"prefix must not end with '{_SEPARATOR}'")
-        self._data = data
-        self._prefix = prefix
-        self._prefix_dot = prefix + _SEPARATOR
+    def __init__(self, data: dict[str, Any] | None = None) -> None:
+        self._data: dict[str, Any] = {}
+        if data:
+            self._data.update(data)
 
-    def _qualify(self, key: str) -> str:
-        if not isinstance(key, str) or not key:
-            raise KeyError("key must be a non-empty string")
-        return f"{self._prefix_dot}{key}"
+    @staticmethod
+    def _prefix(prefix: str) -> str:
+        return prefix + State.SEPARATOR if prefix else ""
 
-    def __getitem__(self, key: str) -> Any:
-        return self._data[self._qualify(key)]
+    # ---------- typed access ----------
 
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._data[self._qualify(key)] = value
-
-    def __delitem__(self, key: str) -> None:
-        del self._data[self._qualify(key)]
-
-    def __iter__(self) -> Iterator[str]:
-        p = self._prefix_dot
-        return (k.removeprefix(p) for k in self._data if k.startswith(p))
-
-    def __len__(self) -> int:
-        p = self._prefix_dot
-        return sum(k.startswith(p) for k in self._data)
-
-    def __contains__(self, key: object) -> bool:  # type: ignore[override]
-        return isinstance(key, str) and (self._qualify(key) in self._data)
-
-    def clear(self) -> None:
-        for k in list(self):
-            del self[k]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Shallow copy of the scoped mapping."""
-        return {k: self[k] for k in self}
-
-    def __repr__(self) -> str:
-        keys = list(self)
-        preview = ", ".join(keys[:5])
-        more = "..." if len(keys) > 5 else ""
-        return f"ScopedView(prefix={self._prefix!r}, size={len(keys)}, keys=[{preview}{more}])"
-
-#La classe State è una specie di dizionario intelligente, usato per passare informazioni 
-#tra gli step della pipeline (tipo DropNulls, FrequencyMap, ecc.).
-#Ogni step legge e scrive dentro State.
-#Le chiavi sono stringhe (es. "data.root", "mapping.categorical").
-#I valori possono essere DataFrame, mapping, configurazioni, ecc.
-#È come la “memoria condivisa” che collega tutte le trasformazioni.
-class State(MutableMapping[str, Any]):
-    """Mutable key-value store with readonly and scoped views.""" 
-    #tale classe implementa un dizionario mutabile con viste in sola lettura e con ambito limitato.
-    #viene usata per memorizzare e condividere informazioni tra vari componenti di un sistema.
-
-    __slots__ = ("_data",)
-
-    def __init__(self, initial: dict[str, Any] | None = None):
-        self._data: dict[str, Any] = dict(initial or {})
-
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
+    def set(self, key: str, value: T, typ: Type[T]) -> None:
+        """Set value enforcing type."""
+        if not isinstance(value, typ):
+            raise TypeError(
+                f"Value for '{key}' must be {typ.__name__}, not {type(value).__name__}"
+            )
+        # Check existing value type compatibility
+        if key in self._data:
+            existing_type = type(self._data[key])
+            if existing_type is not typ:
+                raise TypeError(
+                    f"Key '{key}' already exists with type {existing_type.__name__}, not {typ.__name__}"
+                )
         self._data[key] = value
 
-    def __delitem__(self, key: str) -> None:
+    def update(self, key: str, value: T, typ: Type[T]) -> None:
+        """Force-set value (replaces existing type)."""
+        if not isinstance(value, typ):
+            raise TypeError(
+                f"Value for '{key}' must be {typ.__name__}, not {type(value).__name__}"
+            )
+        self._data[key] = value
+
+    def get(self, key: str, typ: Type[T]) -> T:
+        """Get value asserting the expected type."""
+        if key not in self._data:
+            raise KeyError(f"Missing key '{key}'")
+
+        value = self._data[key]
+        if not isinstance(value, typ):
+            actual_type = type(value).__name__
+            expected_type = typ.__name__
+            raise TypeError(f"Key '{key}' contains {actual_type}, not {expected_type}")
+        return value
+
+    def delete(self, key: str) -> None:
+        """Delete key."""
+        if key not in self._data:
+            raise KeyError(f"Missing key '{key}'")
         del self._data[key]
 
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._data)
+    def has(self, key: str) -> bool:
+        """Return True if key exists."""
+        return key in self._data
 
-    def __len__(self) -> int:
-        return len(self._data)
+    # ---------- iteration & introspection ----------
 
-    def __contains__(self, key: object) -> bool:
-        return isinstance(key, str) and key in self._data
+    def keys(self) -> Iterator[str]:
+        """Iterate all keys."""
+        return iter(self._data.keys())
 
-    def clear(self) -> None:
-        self._data.clear()
+    def items(self) -> Iterator[tuple[str, Any]]:
+        """Iterate all items."""
+        return iter(self._data.items())
 
-    def readonly(self) -> Mapping[str, Any]:
-        """Shallow readonly view of the data."""
+    def types(self) -> Mapping[str, Type]:
+        """Return inferred types mapping."""
+        return {k: type(v) for k, v in self._data.items()}
+
+    def read_only_view(self) -> Mapping[str, Any]:
+        """Return a read-only view of the internal data."""
         return MappingProxyType(self._data)
 
-    def scope(self, prefix: str) -> ScopedView:
-        """Mutable view restricted to keys under `prefix + '.'`."""
-        return ScopedView(self._data, prefix)
-
-    def copy(self) -> "State":
-        """Shallow copy of the state."""
-        return State(dict(self._data))
-
-    def to_dict(self) -> dict[str, Any]:
-        """Shallow copy as a plain dict."""
+    def as_dict(self) -> dict[str, Any]:
+        """Return a shallow copy of the internal data as a standard dictionary."""
         return dict(self._data)
 
+    # ---------- views ----------
+
+    def view(self, prefix: str, strict: bool = True) -> "StateView":
+        """Return a dynamic view for 'prefix.' with stripped keys.
+
+        Args:
+            prefix: The prefix to filter keys by
+            strict: If True (default), only include keys with the prefix.
+                   If False, include keys with prefix + keys without any prefix.
+        """
+        return StateView(self, prefix, strict)
+
     def __repr__(self) -> str:
-        n = len(self._data)
-        items = list(self._data.items())[:6]
-        body = ", ".join(f"{k!r}: {v!r}" for k, v in items)
-        suffix = ", ..." if n > 6 else ""
-        return f"State(size={n}, data={{{body}{suffix}}})"
+        keys_types = [(k, type(v).__name__) for k, v in self._data.items()]
+        return f"State(keys_and_types={keys_types})"
+
+
+class StateView:
+    """Dynamic view over a State for a given prefix.
+
+    Rules:
+    - Keys are accessed as 'prefix.key' in the underlying State.
+    - In strict mode (default), only keys with the prefix are accessible.
+    - In non-strict mode, keys without the prefix are also accessible but prioritized lower.
+    """
+
+    def __init__(self, state: State, prefix: str, strict: bool = True) -> None:
+        self._state = state
+        self._p = State._prefix(prefix)
+        self._strict = strict
+
+    # --- typed access ---
+
+    def set(self, key: str, value: T, typ: Type[T]) -> None:
+        """Set value in the view."""
+        self._state.set(self._p + key, value, typ)
+
+    def update(self, key: str, value: T, typ: Type[T]) -> None:
+        """Force-set value and type in the view."""
+        self._state.update(self._p + key, value, typ)
+
+    def get(self, key: str, typ: Type[T]) -> T:
+        """Get value from the view."""
+        prefixed_key = self._p + key
+        try:
+            return self._state.get(prefixed_key, typ)
+        except KeyError:
+            if not self._strict and State.SEPARATOR not in key:
+                # Try accessing without prefix when not in strict mode
+                return self._state.get(key, typ)
+            raise
+
+    def delete(self, key: str) -> None:
+        """Delete key from the view."""
+        prefixed_key = self._p + key
+        try:
+            self._state.delete(prefixed_key)
+        except KeyError:
+            if not self._strict and State.SEPARATOR not in key:
+                # Try deleting without prefix when not in strict mode
+                self._state.delete(key)
+            else:
+                raise
+
+    def has(self, key: str) -> bool:
+        """Return True if key exists in the view."""
+        prefixed_key = self._p + key
+        if self._state.has(prefixed_key):
+            return True
+        if not self._strict and State.SEPARATOR not in key:
+            # Try checking without prefix when not in strict mode
+            return self._state.has(key)
+        return False
+
+    # --- iteration & introspection ---
+
+    def keys(self) -> Iterator[str]:
+        """Iterate bare keys in this view."""
+        plen = len(self._p)
+        for k in self._state.keys():
+            if k.startswith(self._p):
+                yield k[plen:]
+            elif not self._strict and State.SEPARATOR not in k:
+                # Include keys without any prefix when not in strict mode
+                yield k
+
+    def items(self) -> Iterator[tuple[str, Any]]:
+        """Iterate bare (key, value) in this view."""
+        plen = len(self._p)
+        for k, v in self._state.items():
+            if k.startswith(self._p):
+                yield (k[plen:], v)
+            elif not self._strict and State.SEPARATOR not in k:
+                # Include keys without any prefix when not in strict mode
+                yield (k, v)
+
+    def types(self) -> Mapping[str, Type]:
+        """Return inferred types for this view (bare keys)."""
+        plen = len(self._p)
+        state_types = self._state.types()
+        result = {}
+        for k, t in state_types.items():
+            if k.startswith(self._p):
+                result[k[plen:]] = t
+            elif not self._strict and State.SEPARATOR not in k:
+                # Include keys without any prefix when not in strict mode
+                result[k] = t
+        return result
+
+    def read_only_view(self) -> Mapping[str, Any]:
+        """Return a read-only view of the data in this view (bare keys)."""
+        return MappingProxyType({k: v for k, v in self.items()})
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a shallow copy of the data in this view as a standard dictionary."""
+        return dict({k: v for k, v in self.items()})
+
+    def __repr__(self) -> str:
+        keys_types = [(k, type(v).__name__) for k, v in self._data.items()]
+        return f"StateView(prefix='{self._p}', strict={self._strict}, keys_and_types={keys_types})"
+
+
+StatePredicate = Callable[[State | StateView], bool]
 
 
 def has_key(key: str) -> StatePredicate:
-    """Accept states that contain a certain key."""
-    return lambda state: key in state
+    """Accept states that contain `key`."""
+    return lambda state: state.has(key)
 
 
 def key_equals(key: str, value: object) -> StatePredicate:
-    """Accept states where a key equals a specific value."""
-    return lambda state: state.get(key) == value
+    """Accept states where `key` equals `value`."""
+
+    def predicate(state):
+        try:
+            return state.get(key, type(value)) == value
+        except (KeyError, TypeError):
+            return False
+
+    return predicate
 
 
 def key_not_equals(key: str, value: object) -> StatePredicate:
-    """Accept states where a key does not equal a specific value."""
-    return lambda state: state.get(key) != value
-
-
-def key_exists_and(key: str, predicate: Predicate) -> StatePredicate:
-    """Accept states where a key exists and its value satisfies the predicate."""
-    return lambda state: key in state and predicate(state[key])
+    """Accept states where `key` does not equal `value`."""
+    return lambda state: not key_equals(key, value)(state)
 
 
 def key_is_truthy(key: str) -> StatePredicate:
-    """Accept states where a key exists and its value is truthy."""
-    return lambda state: bool(state.get(key))
+    """Accept states where `key` exists and is truthy."""
+
+    def predicate(state):
+        try:
+            return bool(state.get(key, bool))
+        except (KeyError, TypeError):
+            return False
+
+    return predicate
 
 
 def key_is_falsy(key: str) -> StatePredicate:
-    """Accept states where a key does not exist or its value is falsy."""
-    return lambda state: not state.get(key)
+    """Accept states where `key` is missing or falsy."""
 
-#5. Risultato intuitivo
-#State → un “contenitore centrale” con i dati della pipeline.
-#scope("data") → ci fa accedere solo ai dati sotto "data.".
-#Predicati → piccoli check automatici che dicono “ok, i dati sono pronti per questo step”.
+    def predicate(state):
+        try:
+            return not bool(state.get(key, bool))
+        except (KeyError, TypeError):
+            return True  # Missing key is considered falsy
+
+    return predicate

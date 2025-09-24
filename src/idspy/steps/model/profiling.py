@@ -19,9 +19,6 @@ class TorchProfiler(ContextualStep):
         self,
         step: Step,
         log_dir: str,
-        profiler_out: str = "profiler",
-        name: Optional[str] = None,
-        # Profiler knobs
         wait: int = 1,
         warmup: int = 1,
         active: int = 3,
@@ -30,12 +27,14 @@ class TorchProfiler(ContextualStep):
         profile_memory: bool = True,
         with_stack: bool = False,
         with_flops: bool = False,
+        in_scope: Optional[str] = None,
+        out_scope: Optional[str] = None,
+        name: Optional[str] = None,
     ) -> None:
-        super().__init__(step=step, provides=[profiler_out], name=name)
+        super().__init__(step=step, in_scope=in_scope, out_scope=out_scope, name=name)
 
         # store config
         self.log_dir = log_dir
-        self.profiler_out = profiler_out
         self.wait = wait
         self.warmup = warmup
         self.active = active
@@ -45,7 +44,7 @@ class TorchProfiler(ContextualStep):
         self.with_stack = with_stack
         self.with_flops = with_flops
 
-    def context(self, state: State):
+    def context(self, state: State) -> Optional[any]:
         # Decide activities
         acts = [ProfilerActivity.CPU]
         if torch.cuda.is_available():
@@ -71,5 +70,4 @@ class TorchProfiler(ContextualStep):
             with_flops=self.with_flops,
         )
 
-        state[self.profiler_out] = profiler
         return profiler

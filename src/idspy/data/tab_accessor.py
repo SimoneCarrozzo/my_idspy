@@ -52,11 +52,15 @@ class TabAccessor:
         self.schema.prune_missing(self._obj.columns)
         return self.schema.columns(role)
 
-    def _get_view_for_role(self, role: Union[ColumnRole, str]) -> pd.DataFrame:
+    def _get_view_for_role(
+        self, role: Union[ColumnRole, str]
+    ) -> Optional[pd.DataFrame]:
         """Get a view for a specific role with metadata attached."""
         cols = self._get_columns_for_role(role)
-        out = self._obj[cols]
-        return reattach_meta(self._obj, out)
+        if cols:
+            out = self._obj[cols]
+            return reattach_meta(self._obj, out)
+        return None
 
     @property
     def schema(self) -> Schema:
@@ -211,7 +215,7 @@ class TabAccessor:
     def _assign_block(
         self,
         updated: Union[pd.DataFrame, pd.Series],
-        cols: Optional[List[str]] = None,
+        cols: Optional[Union[List[str], str]] = None,
         mask: Optional[np.ndarray] = None,
     ) -> None:
         """Assign updated values aligned by index and columns.
@@ -225,7 +229,13 @@ class TabAccessor:
         upd = updated.to_frame() if isinstance(updated, pd.Series) else updated
 
         target_index = df.index[mask] if mask is not None else df.index
-        target_cols = df.columns if cols is None else pd.Index(cols)
+
+        if cols is None:
+            target_cols = df.columns
+        elif isinstance(cols, str):
+            target_cols = pd.Index([cols])
+        else:
+            target_cols = pd.Index(cols)
 
         common_index = target_index.intersection(upd.index)
         if not len(common_index):
@@ -241,14 +251,32 @@ class TabAccessor:
             # Full replacement, keep dtypes
             df[common_cols] = upd[common_cols]
         else:
+            # Convert only columns with different dtypes
+            src_dtypes = df.dtypes[common_cols]
+            upd_dtypes = upd.dtypes[common_cols]
+
+            for col in common_cols:
+                if src_dtypes[col] != upd_dtypes[col]:
+                    try:
+                        df[col] = df[col].astype(upd_dtypes[col])
+                    except Exception as e:
+                        raise ValueError(
+                            f"Could not convert dtype for column '{col}' from "
+                            f"{src_dtypes[col]} to {upd_dtypes[col]}."
+                        ) from e
+
             aligned = upd.reindex(index=common_index, columns=common_cols)
             df.loc[common_index, common_cols] = aligned
 
 
-def reattach_meta(src: pd.DataFrame, out: pd.DataFrame) -> pd.DataFrame:
+def reattach_meta(
+    src: Union[pd.DataFrame, pd.Series], out: Union[pd.DataFrame, pd.Series]
+) -> pd.DataFrame:
     """Copy _schema and _partitions from src to out as direct references."""
-    if not isinstance(src, pd.DataFrame) or not isinstance(out, pd.DataFrame):
-        raise ValueError("Both arguments must be pandas DataFrames.")
+    if not isinstance(src, (pd.DataFrame, pd.Series)) or not isinstance(
+        out, (pd.DataFrame, pd.Series)
+    ):
+        raise ValueError("Both arguments must be pandas DataFrames or Series.")
 
     schema = src.attrs.get("_schema")
     splits = src.attrs.get("_partitions")
