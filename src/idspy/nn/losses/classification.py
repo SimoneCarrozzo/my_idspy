@@ -52,24 +52,8 @@ class ClassificationLoss(BaseLoss):
         Returns:
             Loss tensor (scalar or per-sample based on reduction)
         """
-        if target is None:
-            raise ValueError("Target cannot be None for classification loss")
-
-        if target.dtype not in (torch.long, torch.int64, torch.int32):
-            raise TypeError(f"Target must be integer type, got {target.dtype}")
-
-        if target.dim() != 1:
-            raise ValueError(f"Target must be 1D, got shape {target.shape}")
-
-        if pred.size(0) != target.size(0):
-            raise ValueError("Batch size mismatch between pred and target")
-
-        # Move class weights to correct device if needed
         class_weight = self.class_weight
-        if class_weight is not None and class_weight.device != pred.device:
-            class_weight = class_weight.to(pred.device)
 
-        # Compute cross-entropy loss
         loss = F.cross_entropy(
             pred,
             target,
@@ -79,12 +63,6 @@ class ClassificationLoss(BaseLoss):
             reduction="none",
         )
 
-        # Handle ignored indices for proper reduction
-        if self.reduction in ("mean", "sum"):
-            valid_mask = target != self.ignore_index
-            if self.reduction == "mean":
-                return loss.sum() / valid_mask.sum().clamp_min(1)
-            else:  # sum
-                return loss.sum()
-
-        return loss  # none
+        valid_mask = target != self.ignore_index
+        loss = loss[valid_mask]
+        return self._reduce(loss)

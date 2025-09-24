@@ -1,4 +1,4 @@
-from typing import Mapping, Optional, Sequence, Tuple
+from typing import Mapping, Optional, Sequence
 
 import pandas as pd
 import torch

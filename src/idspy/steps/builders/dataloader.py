@@ -14,7 +14,8 @@ class BuildDataLoader(Step):
         batch_size: int = 32,
         shuffle: bool = False,
         num_workers: int = 0,
-        pin_memory: bool = False,
+        pin_memory: bool = True,
+        persistent_workers: bool = False,
         drop_last: bool = False,
         collate_fn: Optional[Callable] = None,
         in_scope: str = "",
@@ -25,6 +26,7 @@ class BuildDataLoader(Step):
         self.shuffle = shuffle
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.persistent_workers = persistent_workers
         self.drop_last = drop_last
         self.collate_fn = collate_fn
 
@@ -43,6 +45,7 @@ class BuildDataLoader(Step):
             shuffle=self.shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
             drop_last=self.drop_last,
             collate_fn=self.collate_fn,
         )

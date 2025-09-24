@@ -1,4 +1,4 @@
-from typing import Dict, Sequence, Optional, Callable, Mapping, Any
+from typing import Sequence, Optional, Callable, Mapping, Any, Tuple
 
 import torch
 from torch import nn
@@ -6,6 +6,7 @@ from torch import nn
 from .base import BaseModel, ModelOutput
 from .mlp import MLP
 from .embedding import FeatureEmbedding
+from ..batch import Batch
 
 
 class MLPClassifier(BaseModel):
@@ -48,28 +49,29 @@ class MLPClassifier(BaseModel):
             x: Input tensor of shape [batch_size, features]
 
         Returns:
-            Model output with 'logits' and 'features' keys
+            Model output with 'logits' and 'latents'
         """
         if not torch.is_tensor(x):
             raise TypeError("Expected tensor features")
         if x.dim() != 2:
             raise ValueError("Expected 2D tensor [batch_size, features]")
 
-        features = self.feature_extractor(x)["logits"]
-        logits = self.classifier_head(features)
-        return {"logits": logits, "features": features}
+        latents = self.feature_extractor(x)
+        logits = self.classifier_head(latents)
+        return ModelOutput(logits=logits, latents=latents)
 
-    def loss_inputs(self, output: ModelOutput, target: torch.Tensor) -> Dict[str, Any]:
-        """Prepare loss function inputs.
+    def for_loss(
+        self,
+        output: ModelOutput,
+        batch: Batch | Mapping[str, Any],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Prepares arguments for the loss function."""
+        if isinstance(batch, Mapping):
+            target = batch.get("target")
+        else:
+            target = batch.target
 
-        Args:
-            output: Model output
-            target: target tensor
-
-        Returns:
-            Loss function arguments
-        """
-        return {"pred": output["logits"], "target": target}
+        return output.logits, target
 
 
 class TabularClassifier(MLPClassifier):
@@ -109,7 +111,7 @@ class TabularClassifier(MLPClassifier):
             x: features dict containing 'num' and 'cat' keys
 
         Returns:
-            Model output with 'logits' and 'features' keys
+            Model output with 'logits' and 'latents'
         """
 
         if not isinstance(x, Mapping):
@@ -123,19 +125,20 @@ class TabularClassifier(MLPClassifier):
         cat_emb = self.embedding(x_cat)
         combined = torch.cat((x_num, cat_emb), dim=1)
 
-        extracted_features = self.feature_extractor(combined)["logits"]
-        logits = self.classifier_head(extracted_features)
+        latents = self.feature_extractor(combined)
+        logits = self.classifier_head(latents)
 
-        return {"logits": logits, "features": extracted_features}
+        return ModelOutput(logits=logits, latents=latents)
 
-    def loss_inputs(self, output: ModelOutput, target: torch.Tensor) -> Dict[str, Any]:
-        """Prepare loss function inputs.
+    def for_loss(
+        self,
+        output: ModelOutput,
+        batch: Batch | Mapping[str, Any],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Prepares arguments for the loss function."""
+        if isinstance(batch, Mapping):
+            target = batch.get("target")
+        else:
+            target = batch.target
 
-        Args:
-            output: Model output
-            target: target tensor
-
-        Returns:
-            Loss function arguments
-        """
-        return {"pred": output["logits"], "target": target}
+        return output.logits, target

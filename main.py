@@ -148,7 +148,10 @@ def main():
             BuildDataLoader(
                 in_scope="train",
                 out_scope="train",
-                batch_size=512,
+                batch_size=256,
+                num_workers=4,
+                persistent_workers=True,
+                pin_memory=False,
                 shuffle=True,
                 collate_fn=default_collate,
             ),

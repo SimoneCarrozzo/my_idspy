@@ -1,10 +1,9 @@
-from typing import Callable, Optional, Sequence, Mapping, Any, Dict
+from typing import Callable, Optional, Sequence, Mapping, Any
 
 import torch
 from torch import nn
 
-from .base import BaseModel, ModelOutput
-from ..batch import Batch, ensure_batch
+from .base import BaseModel
 
 
 class MLP(BaseModel):
@@ -50,7 +49,7 @@ class MLP(BaseModel):
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
 
-    def forward(self, x: Mapping[str, Any]) -> ModelOutput:
+    def forward(self, x: Mapping[str, Any]) -> torch.Tensor:
         """Forward pass.
 
         Args:
@@ -64,17 +63,4 @@ class MLP(BaseModel):
         if x.dim() != 2:
             raise ValueError("Expected 2D tensor [batch_size, features]")
 
-        logits = self.net(x)
-        return {"logits": logits}
-
-    def loss_inputs(self, output: ModelOutput, target: torch.Tensor) -> Dict[str, Any]:
-        """Prepare loss function inputs.
-
-        Args:
-            output: Model output
-            target: target tensor
-
-        Returns:
-            Loss function arguments
-        """
-        return {"pred": output["logits"], "target": target}
+        return self.net(x)

@@ -119,7 +119,7 @@ class LabelMap(FitAwareStep):
             s = prev.astype(self.cat_types)
             codes = s.cat.codes
             tgt = pd.Series(
-                np.where(codes != -1, codes + 1, self.default).astype("int32"),
+                np.where(codes != -1, codes, self.default).astype("int32"),
                 index=s.index,
                 name=tgt_col,
             )

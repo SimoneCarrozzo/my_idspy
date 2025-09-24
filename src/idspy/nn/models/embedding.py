@@ -20,7 +20,7 @@ class FeatureEmbedding(nn.Module):
         for card in cardinalities:
             dim = emb_dim or max(1, int(card**0.5))
 
-            emb = nn.Embedding(card, dim, padding_idx=0)
+            emb = nn.Embedding(card + 1, dim, padding_idx=0)
             self.embeddings.append(emb)
             self.embedding_dims.append(dim)
 

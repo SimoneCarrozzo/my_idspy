@@ -1,10 +1,13 @@
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, NamedTuple, Optional, Tuple
 
 from torch import nn, Tensor
 from ..batch import Batch
 
 
-ModelOutput = Dict[str, Tensor]
+class ModelOutput(NamedTuple):
+    logits: Tensor
+    latents: Optional[Tensor] = None
+    extras: Optional[Dict[str, Any]] = None
 
 
 class BaseModel(nn.Module):
@@ -18,15 +21,15 @@ class BaseModel(nn.Module):
         Args:
             batch: Batch or mapping compatible with Batch.
         Returns:
-            ModelOutput: dict, expected to contain at least 'logits'.
+            ModelOutput: NamedTuple, expected to contain at least 'logits'.
         """
         raise NotImplementedError
 
-    def loss_inputs(
+    def for_loss(
         self,
         output: ModelOutput,
         batch: Batch | Mapping[str, Any],
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Tensor, Tensor]:
         """
         Prepares arguments for the loss function. Default: pred=output['logits'], target=batch.target.
         Override if your model/loss requires different fields.
