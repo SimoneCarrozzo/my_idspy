@@ -7,7 +7,7 @@ from rich.logging import RichHandler
 
 def setup_logging(
         *,
-        level: int = logging.INFO,
+        level: int = logging.DEBUG,
         fmt: str = "%(asctime)s: %(message)s",
         date_fmt: str = "%H:%M:%S",
         console: bool = True,

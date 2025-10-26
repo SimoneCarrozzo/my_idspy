@@ -1,16 +1,7 @@
 import inspect
 from abc import ABC, abstractmethod
-<<<<<<< HEAD
-# modificato da
-# from typing import Iterable, Optional, Set, Any, override, Callable
-# A:
-from typing import Iterable, Optional, Set, Any, Callable
-# aggiunto per me
-from typing_extensions import override
-=======
 from functools import wraps
 from typing import Any, Dict, Optional, Type
->>>>>>> upstream/main
 
 from .state import State, StatePredicate
 
@@ -189,24 +180,10 @@ class Step(ABC):
             Optional dictionary of outputs to be saved to state
         """
         ...
-<<<<<<< HEAD
-    #tale metodo esegue un controllo sugli input richiesti (requires) prima di eseguire il passo
-    #e un controllo sugli output forniti (provides) dopo l'esecuzione così da garantire che il passo rispetti i suoi contratti.
-    def __call__(self, state: State) -> None:
-        """Validate inputs, run, validate outputs."""
-        self.check(state, self.requires)
-        self.run(state)
-        self.check(state, self.provides)
-
-    def execute(self, state: State) -> None:
-        """Alias for __call__."""
-        self(state)
-=======
 
     def __call__(self, state: State, **kwargs) -> None:
         """Execute the step by calling its run method."""
         self.run(state, **kwargs)
->>>>>>> upstream/main
 
     def __repr__(self) -> str:
         """Return string representation of the step."""

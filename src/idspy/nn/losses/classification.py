@@ -64,5 +64,17 @@ class ClassificationLoss(BaseLoss):
         )
 
         valid_mask = target != self.ignore_index
+        # 🔍 Debug prints per capire l'origine del CUDA error
+        # print("valid_mask.shape:", valid_mask.shape)
+        # print("loss.shape:", loss.shape)
+        # print("valid_mask.sum():", valid_mask.sum().item())
+        # print("Any valid:", valid_mask.any().item())
+        # print("target.min():", target.min().item(), "target.max():", target.max().item())
+        # print("pred.shape:", pred.shape)
+        if target.max() >= pred.shape[1] or target.min() < 0:
+            raise ValueError(f"Target out of bounds: {target.min()}–{target.max()}, "
+                     f"expected in [0, {pred.shape[1]-1}]")
+
+
         loss = loss[valid_mask]
         return self._reduce(loss)

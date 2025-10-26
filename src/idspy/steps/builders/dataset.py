@@ -1,6 +1,7 @@
 from typing import Optional, Any, Dict
 
 import pandas as pd
+import torch
 from torch.utils.data import Dataset
 
 from ...core.step import Step
@@ -59,4 +60,12 @@ class BuildDataset(Step):
                 f"{self.name}: no numerical or categorical columns defined in schema."
             )
 
+        
+        # Debug e shift dei target
+        if hasattr(dataset, "target"):
+            print(f"[BuildDataset] Target unique values before shift: {torch.unique(dataset.target)}")
+            dataset.target = dataset.target - 1
+            print(f"[BuildDataset] Target unique values after shift: {torch.unique(dataset.target)}")
+
+        
         return {"dataset": dataset}

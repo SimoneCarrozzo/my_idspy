@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -12,6 +13,19 @@ from ...nn.losses.base import BaseLoss
 from ...nn.batch import ensure_batch
 from ...nn.helpers import run_epoch
 
+
+"""
+# Nel main
+model = TabularClassifier(...)  # Tipo concreto
+state.set("model", model, TabularClassifier)
+
+# In TrainOneEpoch
+return {"model": model}
+# → Step cerca di fare: state.set("train.model", model, BaseModel)
+# ❌ ERRORE! Già esiste con tipo TabularClassifier!
+
+# SOLUZIONE: Non restituire model (è già nello state e viene modificato in-place), e settalo dove serve come Any
+"""
 
 class ValidateOneEpoch(Step):
     """Validate a model for one epoch (no gradient updates)."""
@@ -39,28 +53,40 @@ class ValidateOneEpoch(Step):
             out_scope=out_scope,
         )
 
-    @Step.requires(
+    @Step.requires( #cambiato model=BaseModel -> model=Any
         dataloader=torch.utils.data.DataLoader,
-        model=BaseModel,
+        model=nn.Module,
         loss=BaseLoss,
         device=torch.device,
         history=list,
         outputs=list,
         epoch=int,
     )
-    @Step.provides(model=BaseModel, history=list, outputs=list, epoch=int)
+    @Step.provides(history=list, outputs=list, epoch=int, loss=float) #rimosso model=BaseModel, aggiunto loss=float che prima non c'era perchè prima era train senza early stop
     def run(
         self,
         state: State,
         dataloader: torch.utils.data.DataLoader,
-        model: BaseModel,
+        #model: BaseModel
+        model: nn.Module,
         loss: BaseLoss,
         device: torch.device,
         context: Optional[any] = None,
-        history: list = [],
-        outputs: list = [],
+        history: Optional[list] = None,
+        outputs: Optional[list] = None,
+        # history: list = [],
+        # outputs: list = [],
         epoch: int = 0,
     ) -> Optional[Dict[str, Any]]:
+        #creazione di nuove liste se none
+        if history is None:
+            history = []
+        if outputs is None:
+            outputs = []
+        #se save_outputs è true, sovrascrivo invece di appendere, così da prevenire errori
+        #l'accumulo tra le epoche, dato che resetto all'inizio di ogni validazione
+        if self.save_outputs:
+            outputs = []
         average_loss, outputs_list = run_epoch(
             desc="Validation",
             log_prefix=self.log_prefix,
@@ -86,10 +112,11 @@ class ValidateOneEpoch(Step):
             outputs.extend(outputs_list)
 
         return {
-            "model": model,
+            # "model": model,
             "history": history,
             "outputs": outputs,
             "epoch": epoch + 1,
+            "loss": average_loss,
         }
 
 

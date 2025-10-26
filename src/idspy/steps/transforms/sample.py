@@ -90,3 +90,59 @@ class Downsample(Step):
             )
 
         return {"root": reattach_meta(root, sampled)}
+
+
+
+
+#MIo TRY
+
+class DownSampler2Min(Step):
+    
+    def __init__(
+        self,
+        class_column: str,
+        name: Optional[str] = None,
+        in_scope: str = "data",
+        out_scope: str = "data",
+        random_state: Optional[int] = None,
+      ) -> None:
+        self.class_column = class_column
+        self.random_state = random_state
+        super().__init__(
+            name=name or "down_sampler_2_min",
+            in_scope=in_scope,
+            out_scope=out_scope,
+        )
+    
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame)
+    def run(self, state:State, root:pd.DataFrame) -> Optional[Dict[str,Any]]:
+        
+        if self.class_column is None:
+            print("[DownSampler2Min] ⚠️ Nessuna colonna target definita, ritorno dataset originale.")
+            return {"root": root}
+        
+        print(f"[DownSampler2Min] Target column: {self.class_column}")
+        counts = root[self.class_column].value_counts(dropna=False)
+        print("[DownSampler2Min] Distribuzione iniziale classi:")
+        print(counts)
+        min_size = counts.min()     
+        print(f"[DownSampler2Min] Dimensione classe minoritaria: {min_size}")
+
+        df_list = []
+        for class_value in root[self.class_column].unique():
+            class_count = counts[class_value]
+            if class_count > min_size:
+                subset = root[root[self.class_column] == class_value].sample(
+                n=min_size, replace=False, random_state=self.random_state)
+                print(f"[DownSampler2Min] Classe '{class_value}': {class_count} → {len(subset)} (downsampled)")
+            else:
+                subset = root[root[self.class_column] == class_value]
+                print(f"[DownSampler2Min] Classe '{class_value}': {class_count} (minority, invariata)")
+            df_list.append(subset)
+        
+        sampled = pd.concat(df_list, axis=0)
+        print("[DownSampler2Min] Distribuzione finale classi:")
+        print(sampled[self.class_column].value_counts())
+        
+        return {"root": reattach_meta(root,sampled)}

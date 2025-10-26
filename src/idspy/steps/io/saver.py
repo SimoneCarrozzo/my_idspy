@@ -7,7 +7,7 @@ from ...core.step import Step
 from ...core.state import State
 from ...data.repository import DataFrameRepository
 from ...nn.models.base import BaseModel
-from ...nn.io import save_weights, save_checkpoint
+from ...nn.checkpoints import save_weights, save_checkpoint
 
 
 class SaveData(Step):

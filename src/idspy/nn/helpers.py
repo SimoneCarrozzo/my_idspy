@@ -45,6 +45,10 @@ def run_epoch(
                 optimizer.zero_grad(set_to_none=True)
 
             outputs: ModelOutput = model(batch.features)
+            # Debug prints momentaneo
+            # print("target.min():", batch.target.min().item(), "target.max():", batch.target.max().item())
+            # print("output.shape:", outputs.logits.shape if hasattr(outputs, "logits") else outputs.shape)
+
             if save_outputs:
                 outputs_list.append(outputs.detach())
 
