@@ -241,7 +241,11 @@ def main():
     
     # Creo loss INIZIALE (senza class weighting)
     loss = ClassificationLoss().to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)#era 0.001
+    # 1) con introduzione di class_weighted_smoothed optimizer=torch.optim.Adam(model.parameters(), lr=0.001)
+    # 2) con cambio parametri prima + scheduler poi optimizer=torch.optim.Adam(model.parameters(), lr=0.0001)
+    # 3) ora che cambio di nuovo per migliorare metriche, optimizer=torch.optim.Adam(model.parameters(), lr=0.00015)
+    # 4) cambio solo num_epoch e optimizer per migliorare metriche, optimizer=torch.optim.Adam(model.parameters(), lr=0.00012)  
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.00012)
     
     # ═══════════════════════════════════════════════════════════════════
     # 8️⃣ CREAZIONE DELLO STATE INIZIALE
@@ -335,7 +339,14 @@ def main():
     )
     
     # Smoothing: attenua pesi troppo aggressivi con radice quadrata
-    class_weights_smoothed = np.power(class_weights_balanced, 0.25)#np.sqrt(class_weights_balanced)
+    #1) prima del cambiamento dei parametri (lr, optimizer, batch_size, num_epochs) 
+    # --> class_weights_smoothed = np.sqrt(class_weights_balanced)
+    #2) poi cambiamento parametri prima (lr, optimizer, batch_size, num_epochs 
+    #   aggiunto patience e min_delta) --> class_weights_smoothed = np.power(class_weights_balanced, 0.25)
+    #2.1) poi aggiungendo anche scheduler ma mantenendo i parametri di 2 
+    # --> class_weights_smoothed = np.power(class_weights_balanced, 0.25)
+    #3) si ritorna a class_weights_smoothed = np.sqrt(class_weights_balanced) cambiando i parametri
+    class_weights_smoothed = np.sqrt(class_weights_balanced)
     
     # Stampa confronto pesi
     logger.info("\n⚖️ Confronto pesi delle classi:")
@@ -364,9 +375,9 @@ def main():
     # 🆕 Crea lo step di training con early stopping
     training_step = TrainWithEarlyStopping(
         epoch_pipeline=epoch_pipeline,
-        num_epochs=30,              # Numero massimo di epoche
+        num_epochs=40,              # Numero massimo di epoche
         patience=5,                 # Ferma se nessun miglioramento per 3 epoche
-        min_delta=0.001,            # Miglioramento minimo significativo
+        min_delta=0.0005,            # Miglioramento minimo significativo #update di punto 3) da min_delta=0.001 a min_delta=0.0005
         checkpoint_dir="c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/Salvataggi/checkpoints",
         save_best_only=True,        # Salva solo il miglior modello
         verbose=True,

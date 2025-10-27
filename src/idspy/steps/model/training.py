@@ -28,7 +28,7 @@ return {"model": model}
 # → Step cerca di fare: state.set("train.model", model, BaseModel)
 # ❌ ERRORE! Già esiste con tipo TabularClassifier!
 
-# SOLUZIONE: Non restituire model (è già nello state e viene modificato in-place), e settalo dove serve come Any
+# SOLUZIONE: Non restituire model (è già nello state e viene modificato in-place), e settalo dove serve come nn.Module
 """
 
 
