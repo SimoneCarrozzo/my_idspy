@@ -38,6 +38,8 @@ class TrainOneEpoch(Step):
     def __init__(
         self,
         log_dir: Optional[str] = None,
+        checkpoint_dir: Optional[str] = None, #aggiunto
+        save_checkpoint: bool = True,  # ← Opzione per disabilitare
         log_prefix: str = "train",
         clip_grad_max_norm: Optional[float] = 1.0,
         save_history: bool = False,
@@ -47,13 +49,20 @@ class TrainOneEpoch(Step):
         name: Optional[str] = None,
     ) -> None:
         self.writer: Optional[SummaryWriter] = (
-            SummaryWriter(log_dir) if log_dir else None
+            SummaryWriter(f"{log_dir}") if log_dir else None  # /{log_prefix}← Aggiunto log_prefix
         )
         self.log_prefix = log_prefix
         self.clip_grad_max_norm = clip_grad_max_norm
         self.save_history = save_history
         self.save_outputs = save_outputs
-
+        #aggiunto:
+        self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
+        self.save_checkpoint = save_checkpoint
+        
+        if self.checkpoint_dir and self.save_checkpoint:
+            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            
+            
         super().__init__(
             name=name or "train_one_epoch",
             in_scope=in_scope,
@@ -71,7 +80,8 @@ class TrainOneEpoch(Step):
         outputs=list,
         epoch=int,
     )
-    @Step.provides(history=list, outputs=list, epoch=int)#model=BaseModel,
+    #@Step.provides(history=list, outputs=list, epoch=int)#model=BaseModel,
+    @Step.provides(history=list, outputs=list, epoch=int, loss=float) #aggiunto 13/11    
     def run(
         self,
         state: State,
@@ -112,19 +122,36 @@ class TrainOneEpoch(Step):
             save_outputs=self.save_outputs,
             epoch=epoch,
         )
-
+        # 🆕 Salva training loss esplicitamente
         if self.writer is not None:
-            self.writer.close()
+            self.writer.add_scalar(f"{self.log_prefix}/loss", average_loss, epoch)
+            self.writer.flush()
+            # NON chiudo qui
+        # if self.writer is not None:
+        #     self.writer.close()
         if self.save_history:
             history.append(average_loss)
         if self.save_outputs:
             outputs.append(outputs_list)
 
+        #AGGIUNTO - SalvO checkpoint
+        if self.checkpoint_dir and self.save_checkpoint:
+            checkpoint_path = self.checkpoint_dir / f"model_epoch_{epoch + 1}.pt"
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': average_loss,
+            }, checkpoint_path)
+            logging.info(f"💾 Checkpoint salvato: {checkpoint_path.name}")
+        
+        
         return {
             #"model": model,
             "history": history,
             "outputs": outputs,
             "epoch": epoch + 1,
+            "loss": average_loss, #aggiunto 13/11
         }
 
 

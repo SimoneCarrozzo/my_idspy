@@ -41,7 +41,7 @@ class ValidateOneEpoch(Step):
         name: Optional[str] = None,
     ) -> None:
         self.writer: Optional[SummaryWriter] = (
-            SummaryWriter(log_dir) if log_dir else None
+            SummaryWriter(f"{log_dir}") if log_dir else None  #/{log_prefix} ← Aggiunto log_prefix
         )
         self.log_prefix = log_prefix
         self.save_history = save_history
@@ -104,7 +104,11 @@ class ValidateOneEpoch(Step):
         )
 
         if self.writer is not None:
-            self.writer.close()
+            self.writer.add_scalar(f"{self.log_prefix}/loss", average_loss, epoch)
+            self.writer.flush()
+        # NON chiudo qui: si riusa tra epoche   modifica del 13/11
+        # if self.writer is not None:
+        #     self.writer.close()
 
         if self.save_history:
             history.append(average_loss)
