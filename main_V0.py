@@ -295,27 +295,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════
     # 1️⃣1️⃣ PIPELINE EPOCA - Operazioni per ogni singola epoca
     # ═══════════════════════════════════════════════════════════════════
-    # epoch_pipeline = ObservablePipeline(
-    #     steps=[
-    #         TrainOneEpoch(),
-    #         ValidateOneEpoch(in_scope="test", out_scope="test", save_outputs=True),
-    #         MakePredictions(pred_fn=lambda x: torch.argmax(x, dim=1)),
-    #         ClassificationMetrics("c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/classification_exp_report"),
-    #         #creo custom pipeline con condizione di terminazione: al posto del for dove runno le epoche
-    #         # questa pipeline presenta l'early stopping interno
-    #     ],
-    #     bus=bus,
-    #     name="epoch_pipeline",
-    # )         -----------------> CAMBIATO IL 13/11
-    
-    # OTTENGO AUTOMATICAMENTE IL NUMERO DI CLASSI  --> AGGIUNTO 13/11
-    # train_targets = state.get("train.targets", np.ndarray)
-    # num_classes = len(np.unique(train_targets))
-    # class_names = [f"Class_{i}" for i in range(num_classes)]
-
-    # logger.info(f"\n📊 Numero di classi rilevate: {num_classes}")
-    # logger.info(f"📝 Nomi classi: {class_names}\n")
-    
+        
     import os
     log_dir = "c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs/v0_smoothed"    
     os.makedirs(log_dir, exist_ok=True)
@@ -369,40 +349,6 @@ def main():
         percentage = (count / total_samples) * 100
         logger.info(f"   Classe {cls:2d}: {count:10,} samples ({percentage:5.2f}%)")
     
-    """ # ⚖️ CALCOLA i pesi automaticamente; cambiato class_weight in class_weights_balanced
-    class_weights_balanced = compute_class_weight(
-        class_weight='balanced',
-        classes=unique_classes,
-        y=train_targets
-    )
-    
-    # 🎯 A causa di un bilanciamento che ha restituito dei risultati troppo agressivi
-    # li attenuiamo con con una radice quadrata
-    class_weights_smoothed = np.sqrt(class_weights_balanced)
-    
-    # 📊 STAMPA i pesi
-    # logger.info("\n⚖️ Class weights:")
-    # for cls, weight in zip(unique_classes, class_weights):
-    #     logger.info(f"   Classe {cls:2d}: weight = {weight:.4f}")
-    logger.info("\n⚖️ Confronto pesi:")
-    for cls in unique_classes:
-        logger.info(f"   Classe {cls}: balanced={class_weights_balanced[cls]:.2f}, "
-          f"smoothed={class_weights_smoothed[cls]:.2f}")
-    
-    
-    
-    # 7️⃣ Converto in tensor; cambiato class_weights in class_weights_smoothed
-    class_weights_tensor = torch.FloatTensor(class_weights_smoothed).to(device)
-    logger.info(f"\n✅ Class weights tensor shape: {class_weights_tensor.shape}\n")
-    
-    # 8️⃣ AGGIORNA la loss con i pesi
-    loss_weighted = ClassificationLoss(
-        class_weight=class_weights_tensor
-    ).to(device)
-    
-    state.set("loss", loss_weighted, ClassificationLoss)  # ← Sostituisce la loss nello state
-    logger.info("🎯 Loss function aggiornata con class weighting!\n")
-     """
     # 🔧 DEFINISCO L'APPROCCIO DI CLASS WEIGHTING
     weighting_strategy = "smoothed"  #  "no_weight" (run 1)
                                        # "balanced" (run 2)

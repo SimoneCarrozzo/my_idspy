@@ -257,7 +257,7 @@ class TrainWithEarlyStopping(Step):
             # History (si accumula)
             "train.history", "test.history", "val.history",
             # Epoch counter (si accumula)
-            "train.epoch", "test.epoch", "val.epoch",
+            #"train.epoch", "test.epoch", "val.epoch",
         ]
     
     def _clean_state(self, state: State):
@@ -373,6 +373,9 @@ class TrainWithEarlyStopping(Step):
                 print(f"📊 EPOCA {epoch}/{self.num_epochs}")
                 print(f"{'─'*60}")
             
+            # Setta l'epoca corrente nello state
+            state.set("epoch", epoch -1, int)
+            
             # 1️⃣ Esegui l'epoca (train + validation + metrics)
             self.epoch_pipeline.run(state)
             
@@ -389,10 +392,9 @@ class TrainWithEarlyStopping(Step):
                 old_lr = optimizer.param_groups[0]['lr']
                 self.scheduler.step(current_val_loss)  # ← USA self.scheduler
                 new_lr = optimizer.param_groups[0]['lr']
-            
-            # Log solo se il LR è cambiato
-            if new_lr != old_lr and self.verbose:
-                logger.info(f"📉 Learning rate ridotto: {old_lr:.6f} → {new_lr:.6f}")
+                # Log solo se il LR è cambiato
+                if new_lr != old_lr and self.verbose:
+                    logger.info(f"📉 Learning rate ridotto: {old_lr:.6f} → {new_lr:.6f}")
             
             if self.verbose:
                 logger.info(f"📉 Loss di validazione: {current_val_loss:.6f}")
@@ -453,6 +455,13 @@ class TrainWithEarlyStopping(Step):
             if self.verbose:
                 logger.info(f"\n✅ Ripristinato miglior modello (epoca {self.best_epoch})")
         
+         # 9️⃣ CHIUSURA TENSORBOARD WRITERS
+        logger.info("\n🔒 Chiusura TensorBoard writers...")
+        for step in self.epoch_pipeline.steps:
+            if hasattr(step, 'writer') and step.writer is not None:
+                step.writer.close()
+                logger.info(f"   ✅ Chiuso writer: {step.name}")
+        
         if self.verbose:
             logger.info(f"\n{'='*60}")
             logger.info(f"🎉 Training completato!")
@@ -460,6 +469,10 @@ class TrainWithEarlyStopping(Step):
             logger.info(f"   • Miglior epoca: {self.best_epoch}")
             logger.info(f"   • Miglior loss: {self.best_val_loss:.6f}")
             logger.info(f"{'='*60}\n")
+        
+        # 1️⃣0️⃣ Pulizia finale dell'epoch counter
+        if state.has("epoch"):
+            state.delete("epoch")
         
         return {
             #"model": model,

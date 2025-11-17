@@ -861,7 +861,19 @@ class PlotMetrics(Step):
         plt.Figure
             Figura Matplotlib
         """
-        fig, ax = plt.subplots(figsize=(16, 9))
+        # Determina il numero di epoche
+        num_epochs = df['epoch'].nunique()
+        
+        # 🆕 SCALING DINAMICO: aumenta larghezza se molte epoche
+        base_width = 16
+        if num_epochs > 12:
+            # Aggiungi 1.5 pollici ogni 5 epoche oltre 12
+            extra_width = ((num_epochs - 12) / 5) * 1.5
+            fig_width = base_width + extra_width
+        else:
+            fig_width = base_width
+        
+        fig, ax = plt.subplots(figsize=(fig_width, 9))
         
         # Colori per ciascuna metrica
         colors = {
@@ -908,6 +920,14 @@ class PlotMetrics(Step):
         ax.legend(loc='best', framealpha=0.9)
         ax.set_ylim([0, 1.05])
         
+        # 🆕 X-axis ottimizzato per molte epoche
+        if num_epochs > 12:
+            # Mostra solo epoche pari per evitare affollamento
+            ax.set_xticks(epochs[::2])
+            ax.set_xticklabels(epochs[::2], fontsize=10)
+        else:
+            ax.tick_params(axis='x', labelsize=11)
+        
         #LEGENDA ORIZZONTALE SOTTO IL TITOLO
         ax.legend(
             loc='upper center',        # Posiziona in alto al centro
@@ -931,14 +951,33 @@ class PlotMetrics(Step):
         Una figura con sottografici (subplot) - uno per metrica.
         Ideale come figura supplementare in appendice.
         """
+        # Determina il numero di epoche
+        num_epochs = df['epoch'].nunique()
+        
         num_metrics = len(self.metrics_to_plot)
         
         # Calcola numero di righe e colonne per i subplot
         ncols = 2
         nrows = (num_metrics + ncols - 1) // ncols  # Arrotonda per eccesso
         
+        # SCALING DINAMICO: aumenta dimensioni se molte epoche
+        base_width = 16
+        base_height_per_row = 5
+        
+        if num_epochs > 12:
+            # Aumenta larghezza: +0.8 pollici ogni 5 epoche oltre 12
+            extra_width = ((num_epochs - 12) / 5) * 0.8
+            fig_width = base_width + extra_width
+            
+            # Aumenta altezza leggermente per mantenere proporzioni
+            extra_height = ((num_epochs - 12) / 10) * 0.5
+            fig_height = (base_height_per_row + extra_height) * nrows
+        else:
+            fig_width = base_width
+            fig_height = base_height_per_row * nrows
+        
         fig, axes = plt.subplots(nrows=nrows, ncols=ncols, 
-                                 figsize=(16, 5 * nrows))
+                             figsize=(fig_width, fig_height))
         
         # Appiattisci axes se è un array 2D
         if isinstance(axes, np.ndarray):
@@ -955,6 +994,17 @@ class PlotMetrics(Step):
             'f1_weighted': '#D4AC0D',
         }
         
+        # 🆕 Font size adattivo basato sul numero di epoche
+        if num_epochs > 15:
+            value_fontsize = 6
+            tick_fontsize = 8
+        elif num_epochs > 12:
+            value_fontsize = 7
+            tick_fontsize = 9
+        else:
+            value_fontsize = 9
+            tick_fontsize = 10
+        
         # Crea un subplot per ogni metrica
         for idx, metric_name in enumerate(self.metrics_to_plot):
             ax = axes[idx]
@@ -970,9 +1020,15 @@ class PlotMetrics(Step):
             values = metric_data['value'].values
             color = colors.get(metric_name, '#000000')
             
-            # Barre separate (non raggruppate)
+            # 🆕 Bar width adattivo
+            if num_epochs > 12:
+                bar_width = 0.5  # Barre più sottili ma ancora visibili
+            else:
+                bar_width = 0.6
+            
+            # Barre separate
             bars = ax.bar(epochs, values, color=color, alpha=0.8, 
-                         edgecolor='black', linewidth=1.2, width=0.6)
+                     edgecolor='black', linewidth=1.2, width=bar_width)
             
             # Linea del massimo
             max_value = values.max()
@@ -980,6 +1036,8 @@ class PlotMetrics(Step):
             # Aggiungi valori sopra le barre
             for bar, value, epoch in zip(bars, values, epochs):
                 height = bar.get_height()
+                x_pos = bar.get_x() + bar.get_width()/2.
+
                 # Se barra è molto alta (> 0.95), metti testo sotto
                 if height > 0.90:
                     y_pos = height - 0.05  # Dentro la barra
@@ -989,14 +1047,17 @@ class PlotMetrics(Step):
                     y_pos = max_value + 0.02  # Sopra la barra
                     color_text = 'black'
                     va_align = 'bottom'
-                ax.text(bar.get_x() + bar.get_width()/2., y_pos,
-                   f'{value:.3f}',
+                
+                ax.text(x_pos, y_pos, f'{value:.3f}',
                    ha='center', va=va_align, 
-                   fontsize=9, fontweight='bold',
+                   fontsize=value_fontsize, fontweight='bold',
                    color=color_text)
-                # ax.text(bar.get_x() + bar.get_width()/2., height,
-                #        f'{value:.3f}',
-                #        ha='center', va='bottom', fontsize=9, fontweight='bold')
+                # ax.text(bar.get_x() + bar.get_width()/2., y_pos,
+                #    f'{value:.3f}',
+                #    ha='center', va=va_align, 
+                #    fontsize=9, fontweight='bold',
+                #    color=color_text)
+                
             
             # Linea del massimo
             ax.axhline(y=max_value, color='red', linestyle='--', 
@@ -1021,13 +1082,25 @@ class PlotMetrics(Step):
             ax.grid(True, alpha=0.3, axis='y', linestyle='--')
             ax.set_ylim([0, 1.05])
             # ax.legend(loc='upper right', fontsize=9)
-        
+
+            # 🆕 X-axis ottimizzato per molte epoche
+            if num_epochs > 12:
+                # Mostra solo epoche pari/dispari alternate
+                ax.set_xticks(epochs[::2])
+                ax.set_xticklabels(epochs[::2], fontsize=tick_fontsize)
+            else:
+                ax.tick_params(axis='x', labelsize=tick_fontsize)
+            
+            ax.tick_params(axis='y', labelsize=tick_fontsize)
+            
         # Nascondi i subplot vuoti
         for idx in range(len(self.metrics_to_plot), len(axes)):
             axes[idx].set_visible(False)
-        
+
+        # Titolo principale
         fig.suptitle('Metriche - Analisi Dettagliata per Epoca', 
             fontsize=17, fontweight='bold', y=0.955, x=0.5, ha='center')
+        
         plt.tight_layout(rect=[0.10, 0, 0.90, 0.95])
         return fig
     
