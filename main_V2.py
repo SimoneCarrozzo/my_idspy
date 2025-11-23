@@ -66,6 +66,91 @@ Flusso completo:
 6. Visualizzazione delle metriche
 """
 
+
+""" E' IMPORTANTE PRECISARE CHE PRIMA DI ARRIVARE A QUESTA VERSIONE, CHE CHIAMEREMO V2_SND_TRY_ES E
+    CHE MI HA FATTO OTTENERE:
+        a) accuracy: 99,5
+        b) f1_macro: 80.4
+        c) f1_micro: 99.5
+        d) f1_weighted: 99.4
+        e) precision: 95.9
+        f) recall: 78
+        g) EPOCHE RUNNATE: BEN 32/50
+    
+    IL SETUP IMPLEMENTATO NELLA VERSIONE PRECEDENTE V2_FIRST_TRY_ES, CHE MI HA FATTO OTTENERE:
+        a) accuracy: 99,5
+        b) f1_macro: 80.0
+        c) f1_micro: 99.5
+        d) f1_weighted: 99.4
+        e) precision: 93.7
+        f) recall: 77.4
+        g) EPOCHE RUNNATE: BEN 7/50  
+    
+    PREVEDEVA:
+    
+    BuildDataLoader(
+                in_scope="train",
+                out_scope="train",
+                batch_size=256, # MODIFICATO RISP V1_TRY_STATO_ARTE
+                num_workers=2,  # MODIFICATO RISP V1_TRY_STATO_ARTE
+                pin_memory=True, #AGGIUNTO
+                shuffle=True,
+                collate_fn=default_collate,
+            )
+
+    model = TabularClassifier(
+        num_features=len(schema.numerical),
+        cat_cardinalities=[20] * len(schema.categorical),
+        num_classes=15,
+        hidden_dims=[128, 64, 32],  # MODIFICATO RISP V1_TRY_STATO_ARTE
+        dropout=0.15,               # MODIFICATO RISP V1_TRY_STATO_ARTE
+    ).to(device)
+    
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.00025)    # MODIFICATO RISP V1_TRY_STATO_ARTE
+
+    # #aggiunto
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min', 
+        factor=0.5, 
+        patience=2,      # MODIFICATO RISP V1_TRY_STATO_ARTE: ridotto da 3 a 2
+        min_lr=1e-6,
+        ####verbose=False
+    )
+    
+    # 🔧 SCEGLI LA STRATEGIA DI SMOOTHING
+    smoothing_strategy = "midway_root"  # Opzioni: "sqrt" (default) o "fourth_root" (più conservativo)  --> AGGIUNTO
+            
+    # Applica smoothing
+    elif smoothing_strategy == "midway_root":
+        logger.info("\n✅ STRATEGIA: MIDWAY-Smoothed Class Weighting (radice pari a 0.40)")
+        class_weights_smoothed = np.power(class_weights_balanced, 0.40)
+    else:
+        raise ValueError(f"Strategia sconosciuta: {smoothing_strategy}")
+        
+     # 🆕 Crea lo step di training con early stopping
+    training_step = TrainWithEarlyStopping(
+        epoch_pipeline=epoch_pipeline,
+        num_epochs=50,              # Numero massimo di epoche
+        patience=5,                 # Ferma se nessun miglioramento per 3 epoche
+        min_delta=0.0005,            # Miglioramento minimo significativo #update di punto 3) da min_delta=0.001 a min_delta=0.0005
+        checkpoint_dir=f"{log_dir}/checkpoints_ES",
+        save_best_only=True,        # Salva solo il miglior modello
+        verbose=True,
+        in_scope="train",      
+        out_scope="train",     
+        name="train_with_early_stopping",
+        scheduler=scheduler
+    ) 
+    
+"""
+
+#AGGIUNTO 21/11:
+import os
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ['PYTORCH_CUDA_ALLOC_MAX_SPLIT_SIZE_MB'] = '128'  # Limita frammentazione
+
 def main():
     # ═══════════════════════════════════════════════════════════════════
     # 1️⃣ DEFINIZIONE DELLO SCHEMA
@@ -191,8 +276,9 @@ def main():
             BuildDataLoader(
                 in_scope="train",
                 out_scope="train",
-                batch_size=1024,#512,
-                num_workers=6,
+                batch_size=512,#1024,
+                num_workers=2,  # ← Windows non gestisce bene multiprocessing
+                pin_memory=True, 
                 shuffle=True,
                 collate_fn=default_collate,
             ),
@@ -217,18 +303,17 @@ def main():
         num_features=len(schema.numerical),
         cat_cardinalities=[20] * len(schema.categorical),
         num_classes=15,
-        hidden_dims=[128, 64],
-        dropout=0.1,
+        hidden_dims=[256, 128, 64],
+        dropout=0.2,
     ).to(device)
+
     
     # Creo loss INIZIALE (senza class weighting)
     loss_fn = ClassificationLoss().to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.00012)
-    # 1) con introduzione di class_weighted_smoothed optimizer=torch.optim.Adam(model.parameters(), lr=0.001)
-    # 2) con cambio parametri prima + scheduler poi, e optimizer=torch.optim.Adam(model.parameters(), lr=0.0001)
-    # 3) ora che cambio di nuovo per migliorare metriche, optimizer=torch.optim.Adam(model.parameters(), lr=0.00015)
-    # 4) cambio solo num_epoch e optimizer per migliorare metriche, optimizer=torch.optim.Adam(model.parameters(), lr=0.00012)  
-    
+         
+    # MODIFICA DEL 22/11
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0003)  # ← CAMBIATO da 0.00025 a 0.0003
+
     # ═══════════════════════════════════════════════════════════════════
     # 7️⃣ CREAZIONE DELLO STATE INIZIALE
     # ═══════════════════════════════════════════════════════════════════
@@ -242,17 +327,15 @@ def main():
             "seed": 42,
         }
     )
-    
-    # #aggiunto
+        
+    #MODIFICA DEL 22/11
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 
         mode='min', 
-        factor=0.5, 
-        patience=3,
+        factor=0.7,              # ← CAMBIATO da 0.5 a 0.7 (riduzione più graduale)
+        patience=4,              # ← CAMBIATO da 2 a 4 (più paziente)
         min_lr=1e-6,
-        ####verbose=False
     )
-    ####state.set("scheduler", scheduler, object)
     
     # ═══════════════════════════════════════════════════════════════════
     # 8️⃣ ESECUZIONE PREPROCESSING
@@ -324,7 +407,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════
     
     import os
-    log_dir = "c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs/v1_Try_StatoArte_ES"    
+    log_dir = "C:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs/v1_Try_TheLastDance_ES"    
     os.makedirs(log_dir, exist_ok=True)
     
     epoch_pipeline = ObservablePipeline(
@@ -384,16 +467,7 @@ def main():
         classes=unique_classes,
         y=train_targets
     )
-    
-    # Smoothing: attenua pesi troppo aggressivi con radice quadrata
-    #1) prima del cambiamento dei parametri (lr, optimizer, batch_size, num_epochs) 
-    # --> class_weights_smoothed = np.sqrt(class_weights_balanced)
-    #2) poi cambiamento parametri prima (lr, optimizer, batch_size, num_epochs 
-    #   aggiunto patience e min_delta) --> class_weights_smoothed = np.power(class_weights_balanced, 0.25)
-    #2.1) poi aggiungendo anche scheduler ma mantenendo i parametri di 2 
-    # --> class_weights_smoothed = np.power(class_weights_balanced, 0.25)
-    #3) si ritorna a class_weights_smoothed = np.sqrt(class_weights_balanced) cambiando i parametri
-    
+        
     # Applica smoothing
     if smoothing_strategy == "sqrt":
         logger.info("\n✅ STRATEGIA: Smoothed Class Weighting (radice quadrata)")
@@ -401,6 +475,10 @@ def main():
     elif smoothing_strategy == "4_root":
         logger.info("\n✅ STRATEGIA: Ultra-Smoothed Class Weighting (radice quarta)")
         class_weights_smoothed = np.power(class_weights_balanced, 0.25)
+        #ATTENZIONE è NUOVO QUELLO CHE SEGUE:
+    elif smoothing_strategy == "midway_root":
+        logger.info("\n✅ STRATEGIA: MIDWAY-Smoothed Class Weighting (radice pari a 0.40)")
+        class_weights_smoothed = np.power(class_weights_balanced, 0.40)
     else:
         raise ValueError(f"Strategia sconosciuta: {smoothing_strategy}")
 
@@ -427,15 +505,15 @@ def main():
     logger.info("\n" + "="*70)
     logger.info("🚀 FASE 4: TRAINING CON EARLY STOPPING")
     logger.info("="*70)
-    
-    # 🆕 Crea lo step di training con early stopping
+        
+    #MODIFICA DEL 22/11
     training_step = TrainWithEarlyStopping(
         epoch_pipeline=epoch_pipeline,
-        num_epochs=40,              # Numero massimo di epoche
-        patience=5,                 # Ferma se nessun miglioramento per 3 epoche
-        min_delta=0.0005,            # Miglioramento minimo significativo #update di punto 3) da min_delta=0.001 a min_delta=0.0005
+        num_epochs=50,              # OK
+        patience=8,                 # ← CAMBIATO da 5 a 8 (più paziente)
+        min_delta=0.0002,           # ← CAMBIATO da 0.0005 a 0.0002 (più tollerante)
         checkpoint_dir=f"{log_dir}/checkpoints_ES",
-        save_best_only=True,        # Salva solo il miglior modello
+        save_best_only=True,
         verbose=True,
         in_scope="train",      
         out_scope="train",     
