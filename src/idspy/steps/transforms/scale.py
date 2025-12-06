@@ -16,243 +16,243 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, message="overflow enc
 warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered")
 
 
-class StandardScale1(FitAwareStep):
-    """Ultra-robust standardization that handles extreme values and memory constraints."""
+# class StandardScale1(FitAwareStep):
+#     """Ultra-robust standardization that handles extreme values and memory constraints."""
 
-    def __init__(
-        self, 
-        chunk_size: int = 300_000,  # Aumentato come richiesto
-        dtype: str = "float32",     # Usa float32 per ridurre memoria
-        in_scope: str = "data", 
-        out_scope: str = "data", 
-        name: Optional[str] = None
-    ) -> None:
-        self.chunk_size = chunk_size
-        self.dtype = getattr(np, dtype)
-        self._scale: Optional[pd.Series] = None
-        self._means: Optional[pd.Series] = None
-        self._stds: Optional[pd.Series] = None
+#     def __init__(
+#         self, 
+#         chunk_size: int = 300_000,  # Aumentato come richiesto
+#         dtype: str = "float32",     # Usa float32 per ridurre memoria
+#         in_scope: str = "data", 
+#         out_scope: str = "data", 
+#         name: Optional[str] = None
+#     ) -> None:
+#         self.chunk_size = chunk_size
+#         self.dtype = getattr(np, dtype)
+#         self._scale: Optional[pd.Series] = None
+#         self._means: Optional[pd.Series] = None
+#         self._stds: Optional[pd.Series] = None
         
-        super().__init__(
-            name=name or "standard_scale",
-            in_scope=in_scope,
-            out_scope=out_scope,
-        )
+#         super().__init__(
+#             name=name or "standard_scale",
+#             in_scope=in_scope,
+#             out_scope=out_scope,
+#         )
 
-    def _sanitize_chunk(self, chunk: pd.DataFrame) -> np.ndarray:
-        """Pulisce e converte chunk in numpy array sicuro."""
-        # Converte a numpy direttamente per evitare operazioni pandas costose
-        chunk_array = chunk.values.astype(self.dtype, copy=False)
+#     def _sanitize_chunk(self, chunk: pd.DataFrame) -> np.ndarray:
+#         """Pulisce e converte chunk in numpy array sicuro."""
+#         # Converte a numpy direttamente per evitare operazioni pandas costose
+#         chunk_array = chunk.values.astype(self.dtype, copy=False)
         
-        # Sostituisce inf e valori estremi con NaN
-        chunk_array = np.where(
-            (np.abs(chunk_array) > 1e30) | (~np.isfinite(chunk_array)), 
-            np.nan, 
-            chunk_array
-        )
+#         # Sostituisce inf e valori estremi con NaN
+#         chunk_array = np.where(
+#             (np.abs(chunk_array) > 1e30) | (~np.isfinite(chunk_array)), 
+#             np.nan, 
+#             chunk_array
+#         )
         
-        return chunk_array
+#         return chunk_array
 
-    def _compute_chunk_stats(self, chunk_array: np.ndarray) -> Dict[str, np.ndarray]:
-        """Calcola statistiche robuste per un chunk."""
-        n_rows, n_cols = chunk_array.shape
+#     def _compute_chunk_stats(self, chunk_array: np.ndarray) -> Dict[str, np.ndarray]:
+#         """Calcola statistiche robuste per un chunk."""
+#         n_rows, n_cols = chunk_array.shape
         
-        # Maschera per valori validi
-        valid_mask = ~np.isnan(chunk_array)
+#         # Maschera per valori validi
+#         valid_mask = ~np.isnan(chunk_array)
         
-        # Conteggi
-        counts = np.sum(valid_mask, axis=0)
+#         # Conteggi
+#         counts = np.sum(valid_mask, axis=0)
         
-        # Somme (usa nansum per sicurezza)
-        sums = np.nansum(chunk_array, axis=0)
+#         # Somme (usa nansum per sicurezza)
+#         sums = np.nansum(chunk_array, axis=0)
         
-        # Somme dei quadrati - usa clipping per evitare overflow
-        chunk_clipped = np.clip(chunk_array, -1e15, 1e15)  # Limita range
-        sum_squares = np.nansum(chunk_clipped ** 2, axis=0)
+#         # Somme dei quadrati - usa clipping per evitare overflow
+#         chunk_clipped = np.clip(chunk_array, -1e15, 1e15)  # Limita range
+#         sum_squares = np.nansum(chunk_clipped ** 2, axis=0)
         
-        # Massimi assoluti
-        abs_max = np.nanmax(np.abs(chunk_array), axis=0)
-        abs_max = np.nan_to_num(abs_max, nan=0.0)
+#         # Massimi assoluti
+#         abs_max = np.nanmax(np.abs(chunk_array), axis=0)
+#         abs_max = np.nan_to_num(abs_max, nan=0.0)
         
-        return {
-            'count': counts.astype(np.int64),
-            'sum': sums.astype(np.float64),
-            'sum_sq': sum_squares.astype(np.float64), 
-            'abs_max': abs_max.astype(self.dtype)
-        }
+#         return {
+#             'count': counts.astype(np.int64),
+#             'sum': sums.astype(np.float64),
+#             'sum_sq': sum_squares.astype(np.float64), 
+#             'abs_max': abs_max.astype(self.dtype)
+#         }
 
-    def _iter_chunks_safe(self, df: pd.DataFrame):
-        """Iterator sicuro per chunk grandi."""
-        n_rows = len(df)
-        for start in range(0, n_rows, self.chunk_size):
-            end = min(start + self.chunk_size, n_rows)
+#     def _iter_chunks_safe(self, df: pd.DataFrame):
+#         """Iterator sicuro per chunk grandi."""
+#         n_rows = len(df)
+#         for start in range(0, n_rows, self.chunk_size):
+#             end = min(start + self.chunk_size, n_rows)
             
-            # Estrai chunk come numpy array direttamente 
-            chunk = df.iloc[start:end]
+#             # Estrai chunk come numpy array direttamente 
+#             chunk = df.iloc[start:end]
             
-            # Pulisci attrs per evitare deepcopy issues
-            if hasattr(chunk, 'attrs'):
-                chunk.attrs.clear()
+#             # Pulisci attrs per evitare deepcopy issues
+#             if hasattr(chunk, 'attrs'):
+#                 chunk.attrs.clear()
                 
-            yield chunk
+#             yield chunk
             
-            # Memory cleanup ogni 20 chunk (meno frequente)
-            if (start // self.chunk_size) % 20 == 19:
-                gc.collect()
+#             # Memory cleanup ogni 20 chunk (meno frequente)
+#             if (start // self.chunk_size) % 20 == 19:
+#                 gc.collect()
 
-    @Step.requires(root=pd.DataFrame)
-    def fit_impl(self, state: State, root: pd.DataFrame) -> None:
-        """Fit robusto con gestione overflow."""
+#     @Step.requires(root=pd.DataFrame)
+#     def fit_impl(self, state: State, root: pd.DataFrame) -> None:
+#         """Fit robusto con gestione overflow."""
         
-        numerical_data = root.tab.train.tab.numerical
+#         numerical_data = root.tab.train.tab.numerical
         
-        if numerical_data.shape[1] == 0:
-            self._scale = pd.Series(dtype=self.dtype)
-            self._means = pd.Series(dtype=self.dtype)
-            self._stds = pd.Series(dtype=self.dtype)
-            return
+#         if numerical_data.shape[1] == 0:
+#             self._scale = pd.Series(dtype=self.dtype)
+#             self._means = pd.Series(dtype=self.dtype)
+#             self._stds = pd.Series(dtype=self.dtype)
+#             return
 
-        print(f"[StandardScale] Fitting su {len(numerical_data):,} righe, {len(numerical_data.columns)} colonne")
-        print(f"[StandardScale] Chunk size: {self.chunk_size:,}")
+#         print(f"[StandardScale] Fitting su {len(numerical_data):,} righe, {len(numerical_data.columns)} colonne")
+#         print(f"[StandardScale] Chunk size: {self.chunk_size:,}")
         
-        n_cols = numerical_data.shape[1]
-        col_names = numerical_data.columns
+#         n_cols = numerical_data.shape[1]
+#         col_names = numerical_data.columns
         
-        # Accumulatori robusti
-        total_count = np.zeros(n_cols, dtype=np.int64)
-        total_sum = np.zeros(n_cols, dtype=np.float64)
-        total_sum_sq = np.zeros(n_cols, dtype=np.float64)
-        global_abs_max = np.zeros(n_cols, dtype=self.dtype)
+#         # Accumulatori robusti
+#         total_count = np.zeros(n_cols, dtype=np.int64)
+#         total_sum = np.zeros(n_cols, dtype=np.float64)
+#         total_sum_sq = np.zeros(n_cols, dtype=np.float64)
+#         global_abs_max = np.zeros(n_cols, dtype=self.dtype)
         
-        # Processa chunk
-        chunk_idx = 0
-        for chunk in self._iter_chunks_safe(numerical_data):
-            chunk_idx += 1
+#         # Processa chunk
+#         chunk_idx = 0
+#         for chunk in self._iter_chunks_safe(numerical_data):
+#             chunk_idx += 1
             
-            # Progress ogni 50 chunk (meno verbose)
-            if chunk_idx % 50 == 0:
-                print(f"[StandardScale] Chunk {chunk_idx} processato...")
+#             # Progress ogni 50 chunk (meno verbose)
+#             if chunk_idx % 50 == 0:
+#                 print(f"[StandardScale] Chunk {chunk_idx} processato...")
             
-            # Sanitizza e calcola stats
-            chunk_array = self._sanitize_chunk(chunk)
-            stats = self._compute_chunk_stats(chunk_array)
+#             # Sanitizza e calcola stats
+#             chunk_array = self._sanitize_chunk(chunk)
+#             stats = self._compute_chunk_stats(chunk_array)
             
-            # Accumula in modo sicuro
-            total_count += stats['count']
-            total_sum += stats['sum']
-            total_sum_sq += stats['sum_sq'] 
-            global_abs_max = np.maximum(global_abs_max, stats['abs_max'])
+#             # Accumula in modo sicuro
+#             total_count += stats['count']
+#             total_sum += stats['sum']
+#             total_sum_sq += stats['sum_sq'] 
+#             global_abs_max = np.maximum(global_abs_max, stats['abs_max'])
         
-        # Calcola statistiche finali robuste
+#         # Calcola statistiche finali robuste
         
-        # Scale: usa percentile se abs_max è troppo grande
-        scale_array = np.maximum(global_abs_max, 1e-8)  # Soglia più permissiva
-        scale_array = np.clip(scale_array, 1e-8, 1e10)  # Limita range estremo
-        self._scale = pd.Series(scale_array, index=col_names, dtype=self.dtype)
+#         # Scale: usa percentile se abs_max è troppo grande
+#         scale_array = np.maximum(global_abs_max, 1e-8)  # Soglia più permissiva
+#         scale_array = np.clip(scale_array, 1e-8, 1e10)  # Limita range estremo
+#         self._scale = pd.Series(scale_array, index=col_names, dtype=self.dtype)
         
-        # Media robusta
-        valid_counts = np.maximum(total_count, 1)
-        means_array = np.divide(total_sum, valid_counts, 
-                               out=np.zeros(n_cols, dtype=np.float64),
-                               where=valid_counts>0)
-        means_array = np.nan_to_num(means_array, nan=0.0)
-        means_array = np.clip(means_array, -1e6, 1e6)  # Clamp medie estreme
-        self._means = pd.Series(means_array, index=col_names, dtype=self.dtype)
+#         # Media robusta
+#         valid_counts = np.maximum(total_count, 1)
+#         means_array = np.divide(total_sum, valid_counts, 
+#                                out=np.zeros(n_cols, dtype=np.float64),
+#                                where=valid_counts>0)
+#         means_array = np.nan_to_num(means_array, nan=0.0)
+#         means_array = np.clip(means_array, -1e6, 1e6)  # Clamp medie estreme
+#         self._means = pd.Series(means_array, index=col_names, dtype=self.dtype)
         
-        # Std robusta  
-        variance = np.divide(total_sum_sq, valid_counts,
-                            out=np.zeros(n_cols, dtype=np.float64),
-                            where=valid_counts>0) - means_array**2
-        variance = np.maximum(variance, 0.0)  # Forza non-negativo
-        variance = np.clip(variance, 0.0, 1e10)  # Limita varianza estrema
+#         # Std robusta  
+#         variance = np.divide(total_sum_sq, valid_counts,
+#                             out=np.zeros(n_cols, dtype=np.float64),
+#                             where=valid_counts>0) - means_array**2
+#         variance = np.maximum(variance, 0.0)  # Forza non-negativo
+#         variance = np.clip(variance, 0.0, 1e10)  # Limita varianza estrema
         
-        std_array = np.sqrt(variance)
-        std_array = np.maximum(std_array, 1e-8)  # Evita std=0
-        std_array = np.minimum(std_array, 1e6)   # Limita std estremi
-        self._stds = pd.Series(std_array, index=col_names, dtype=self.dtype)
+#         std_array = np.sqrt(variance)
+#         std_array = np.maximum(std_array, 1e-8)  # Evita std=0
+#         std_array = np.minimum(std_array, 1e6)   # Limita std estremi
+#         self._stds = pd.Series(std_array, index=col_names, dtype=self.dtype)
         
-        print(f"[StandardScale] Fit completato.")
-        print(f"Scale range: [{self._scale.min():.6f}, {self._scale.max():.6f}]")
-        print(f"Std range: [{self._stds.min():.6f}, {self._stds.max():.6f}]")
+#         print(f"[StandardScale] Fit completato.")
+#         print(f"Scale range: [{self._scale.min():.6f}, {self._scale.max():.6f}]")
+#         print(f"Std range: [{self._stds.min():.6f}, {self._stds.max():.6f}]")
 
-    @Step.requires(root=pd.DataFrame)
-    @Step.provides(root=pd.DataFrame)
-    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
-        """Applica scaling in modo memory-safe."""
+#     @Step.requires(root=pd.DataFrame)
+#     @Step.provides(root=pd.DataFrame)
+#     def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+#         """Applica scaling in modo memory-safe."""
         
-        numerical_data = root.tab.numerical
-        if numerical_data.shape[1] == 0:
-            return {"root": root}
+#         numerical_data = root.tab.numerical
+#         if numerical_data.shape[1] == 0:
+#             return {"root": root}
         
-        print(f"[StandardScale] Applying scaling to {len(numerical_data):,} rows")
+#         print(f"[StandardScale] Applying scaling to {len(numerical_data):,} rows")
         
-        # Allinea parametri alle colonne correnti
-        cols = numerical_data.columns
-        scale = self._scale.reindex(cols, fill_value=1.0).values.astype(self.dtype)
-        means = self._means.reindex(cols, fill_value=0.0).values.astype(self.dtype)
-        stds = self._stds.reindex(cols, fill_value=1.0).values.astype(self.dtype)
+#         # Allinea parametri alle colonne correnti
+#         cols = numerical_data.columns
+#         scale = self._scale.reindex(cols, fill_value=1.0).values.astype(self.dtype)
+#         means = self._means.reindex(cols, fill_value=0.0).values.astype(self.dtype)
+#         stds = self._stds.reindex(cols, fill_value=1.0).values.astype(self.dtype)
         
-        # Applica scaling chunk per chunk con numpy puro (più veloce)
-        result_chunks = []
-        chunk_idx = 0
+#         # Applica scaling chunk per chunk con numpy puro (più veloce)
+#         result_chunks = []
+#         chunk_idx = 0
         
-        for chunk in self._iter_chunks_safe(numerical_data):
-            chunk_idx += 1
+#         for chunk in self._iter_chunks_safe(numerical_data):
+#             chunk_idx += 1
             
-            # Progress meno frequente
-            if chunk_idx % 100 == 0:
-                print(f"[StandardScale] Scaling chunk {chunk_idx}...")
+#             # Progress meno frequente
+#             if chunk_idx % 100 == 0:
+#                 print(f"[StandardScale] Scaling chunk {chunk_idx}...")
             
-            # Converte a numpy e pulisce
-            chunk_array = self._sanitize_chunk(chunk)
+#             # Converte a numpy e pulisce
+#             chunk_array = self._sanitize_chunk(chunk)
             
-            # Applica standardizzazione con numpy (evita operazioni pandas)
-            chunk_scaled = (chunk_array / scale - means) / stds
+#             # Applica standardizzazione con numpy (evita operazioni pandas)
+#             chunk_scaled = (chunk_array / scale - means) / stds
             
-            # Clamp valori estremi post-scaling
-            chunk_scaled = np.clip(chunk_scaled, -10.0, 10.0)
-            chunk_scaled = np.nan_to_num(chunk_scaled, nan=0.0)
+#             # Clamp valori estremi post-scaling
+#             chunk_scaled = np.clip(chunk_scaled, -10.0, 10.0)
+#             chunk_scaled = np.nan_to_num(chunk_scaled, nan=0.0)
             
-            # Ricrea DataFrame con attributi puliti
-            chunk_df = pd.DataFrame(
-                chunk_scaled, 
-                columns=cols,
-                dtype=self.dtype
-            )
+#             # Ricrea DataFrame con attributi puliti
+#             chunk_df = pd.DataFrame(
+#                 chunk_scaled, 
+#                 columns=cols,
+#                 dtype=self.dtype
+#             )
             
-            result_chunks.append(chunk_df)
+#             result_chunks.append(chunk_df)
         
-        print("[StandardScale] Concatenating results...")
+#         print("[StandardScale] Concatenating results...")
         
-        # Concatenazione più efficiente
-        try:
-            numerical_scaled = pd.concat(result_chunks, axis=0, ignore_index=True, copy=False)
-        except Exception as e:
-            print(f"[StandardScale] Errore concatenazione: {e}")
-            # Fallback: concatena chunk più piccoli
-            print("[StandardScale] Fallback: concatenazione in batch...")
-            batched_chunks = []
-            batch_size = 10
+#         # Concatenazione più efficiente
+#         try:
+#             numerical_scaled = pd.concat(result_chunks, axis=0, ignore_index=True, copy=False)
+#         except Exception as e:
+#             print(f"[StandardScale] Errore concatenazione: {e}")
+#             # Fallback: concatena chunk più piccoli
+#             print("[StandardScale] Fallback: concatenazione in batch...")
+#             batched_chunks = []
+#             batch_size = 10
             
-            for i in range(0, len(result_chunks), batch_size):
-                batch = result_chunks[i:i+batch_size]
-                batched_chunk = pd.concat(batch, axis=0, ignore_index=True, copy=False)
-                batched_chunks.append(batched_chunk)
-                del batch
-                gc.collect()
+#             for i in range(0, len(result_chunks), batch_size):
+#                 batch = result_chunks[i:i+batch_size]
+#                 batched_chunk = pd.concat(batch, axis=0, ignore_index=True, copy=False)
+#                 batched_chunks.append(batched_chunk)
+#                 del batch
+#                 gc.collect()
             
-            numerical_scaled = pd.concat(batched_chunks, axis=0, ignore_index=True, copy=False)
-            del batched_chunks
+#             numerical_scaled = pd.concat(batched_chunks, axis=0, ignore_index=True, copy=False)
+#             del batched_chunks
         
-        # Assegna risultato
-        root.tab.numerical = numerical_scaled
+#         # Assegna risultato
+#         root.tab.numerical = numerical_scaled
         
-        # Cleanup completo
-        del result_chunks
-        gc.collect()
+#         # Cleanup completo
+#         del result_chunks
+#         gc.collect()
         
-        print("[StandardScale] Scaling completato!")
-        return {"root": root}
+#         print("[StandardScale] Scaling completato!")
+#         return {"root": root}
 
 
 
@@ -381,204 +381,433 @@ class MinMaxScale(FitAwareStep):
 
 
 
-
-
-
-
-
-
-
+#==================================================================================================
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-
 class StandardScale2(FitAwareStep):  
-    """Standardize numerical columns using mean/std with overflow-safe scaling and chunk processing."""
+    """Standardize numerical columns using mean/std with memory-efficient and stable scaling."""
 
     def __init__(
         self,
-        chunk_size: int = 300000,
         in_scope: str = "data",
         out_scope: str = "data",
         name: Optional[str] = None,
     ) -> None:
-        self._chunk_size = chunk_size
         self._scale: Optional[pd.Series] = None
-        self._means_s: Optional[pd.Series] = None
-        self._stds_s: Optional[pd.Series] = None
+        self._means: Optional[pd.Series] = None
+        self._stds: Optional[pd.Series] = None
                        
         super().__init__(
-            name=name or "standard_scale2",
+            name=name or "standard_scale",
             in_scope=in_scope,
             out_scope=out_scope,
         )
 
-    def _process_chunk_fit(self, chunk: pd.DataFrame) -> tuple:
-        """Process a single chunk during fitting phase."""
-        if chunk.shape[1] == 0:
-            return None, None, None, 0
-            
-        # Converti a float64 e gestisci valori infiniti
-        chunk = chunk.astype(np.float64, copy=False).replace(
-            [np.inf, -np.inf], np.nan                       
-        )
-        
-        # Calcola statistiche per questo chunk
-        abs_max = chunk.abs().max(axis=0, skipna=True)
-        chunk_scale = (
-            abs_max.fillna(0.0).clip(lower=1e-10, upper=None).where(abs_max > 0.0, 1.0)
-        )
-        
-        chunk_scaled = chunk / chunk_scale
-        chunk_sum = chunk_scaled.sum(axis=0, skipna=True)
-        chunk_sum_sq = (chunk_scaled ** 2).sum(axis=0, skipna=True)
-        chunk_count = chunk_scaled.count(axis=0)
-        
-        return chunk_scale, chunk_sum, chunk_sum_sq, chunk_count
-
     @Step.requires(root=pd.DataFrame)
     def fit_impl(self, state: State, root: pd.DataFrame) -> None:
-        """Fit scaling stats on train split using chunked processing (overflow-safe)."""
+        """Fit scaling stats on train split (memory-efficient + numerically stable)."""
         numerical_data = root.tab.train.tab.numerical
-        print(f"[StandardScale2] Inizio fitting su {numerical_data.shape[0]:,} righe e {numerical_data.shape[1]} colonne")
-
+        
         if numerical_data.shape[1] == 0:
             self._scale = pd.Series(dtype="float64")
-            self._means_s = pd.Series(dtype="float64")
-            self._stds_s = pd.Series(dtype="float64")
+            self._means = pd.Series(dtype="float64")
+            self._stds = pd.Series(dtype="float64")
             return
 
-        # Inizializza accumulatori per le statistiche
-        total_scale = None
-        total_sum = None
-        total_sum_sq = None
-        total_count = None
+        # 🔍 TEST RAPIDO: Verifica colonne con valori sospetti PRIMA del processing
+        print("\n" + "="*80)
+        print("🔍 DEBUG PRE-SCALING: Analisi valori estremi")
+        print("="*80)
+        suspicious_cols = []
+        for col in numerical_data.columns:
+            abs_max = numerical_data[col].abs().max()
+            if abs_max > 1e6:
+                suspicious_cols.append((col, abs_max))
+                print(f"⚠️  {col}: max={abs_max:.2e}")
         
-        # Processa il dataset in chunk
-        for start_idx in range(0, len(numerical_data), self._chunk_size):
-            end_idx = min(start_idx + self._chunk_size, len(numerical_data))
-            chunk = numerical_data.iloc[start_idx:end_idx]
+        if not suspicious_cols:
+            print("✅ Nessuna colonna con valori estremi rilevata")
+        else:
+            print(f"\n⚠️  Trovate {len(suspicious_cols)} colonne con valori > 1e6")
+        print("="*80 + "\n")
+        
+        # 🔧 FIX CRITICO: Processa colonna per colonna per evitare OOM
+        scales = []
+        means = []
+        stds = []
+        cols = []
+        
+        for col in numerical_data.columns:
+            # Lavora su una colonna alla volta (molto più memory-efficient)
+            col_data = numerical_data[col].values  # Usa numpy array direttamente
             
-            chunk_scale, chunk_sum, chunk_sum_sq, chunk_count = self._process_chunk_fit(chunk)
+            # Converti a float64 in-place
+            if col_data.dtype != np.float64:
+                col_data = col_data.astype(np.float64)
             
-            if chunk_scale is None:
-                continue
-                
-            # Accumula le statistiche
-            if total_scale is None:
-                total_scale = chunk_scale.copy()
-                total_sum = chunk_sum.copy()
-                total_sum_sq = chunk_sum_sq.copy()
-                total_count = chunk_count.copy()
-            else:
-                # CORREZIONE: Usa np.maximum invece di pd.concat per combinare le scale
-                total_scale = pd.Series(
-                    np.maximum(total_scale.values, chunk_scale.reindex(total_scale.index, fill_value=0).values),
-                    index=total_scale.index,
-                    name=total_scale.name
-                )
-                
-                # Assicurati che gli indici siano allineati per le somme
-                total_sum = total_sum.add(chunk_sum, fill_value=0)
-                total_sum_sq = total_sum_sq.add(chunk_sum_sq, fill_value=0)
-                total_count = total_count.add(chunk_count, fill_value=0)
-
-        # Salva le scale finali
-        self._scale = total_scale
-        
-        # Calcola media e deviazione standard dalle statistiche accumulate
-        # Evita divisione per zero sostituendo 0 con NaN
-        valid_counts = total_count.replace(0, np.nan)
-        self._means_s = (total_sum / valid_counts).fillna(0.0)
-        
-        # Calcola varianza: E[X²] - E[X]²
-        mean_sq = (total_sum_sq / valid_counts).fillna(0.0)
-        variance = (mean_sq - (self._means_s ** 2)).clip(lower=1e-20)
-        self._stds_s = np.sqrt(variance).clip(lower=1e-10)
-        
-        # Gestisci casi edge: se non ci sono osservazioni valide, usa valori default
-        self._stds_s = self._stds_s.fillna(1.0)
-        print(f"[StandardScale2] Scale range: [{self._scale.min():.6f}, {self._scale.max():.6f}]")
-        print(f"[StandardScale2] Means range: [{self._means_s.min():.6f}, {self._means_s.max():.6f}]")
-        print(f"[StandardScale2] Stds range: [{self._stds_s.min():.6f}, {self._stds_s.max():.6f}]")
-        print("[StandardScale2] Fitting completato")
-
-    def _process_chunk_transform(self, chunk: pd.DataFrame, cols: pd.Index, 
-                                scale: pd.Series, means_s: pd.Series, stds_s: pd.Series) -> pd.DataFrame:
-        """Process a single chunk during transformation phase."""
-        if chunk.shape[1] == 0:
-            return chunk
+            # Rimuovi inf/nan
+            col_data = np.where(np.isfinite(col_data), col_data, np.nan)
             
-        # Converti a float64 e gestisci valori infiniti
-        chunk = chunk.astype(np.float64, copy=False).replace(
-            [np.inf, -np.inf], np.nan
-        )
+            # 🔧 FIX STABILITÀ: Usa log-scale per valori estremi
+            abs_max = np.nanmax(np.abs(col_data))
+            
+            # Se i valori sono troppo grandi (>1e10), usa log-transform
+            if abs_max > 1e10:
+                print(f"⚠️  Colonna '{col}' ha valori estremi (max={abs_max:.2e}), applico log-transform")
+                # Log-transform per stabilizzare (aggiungi 1 per evitare log(0))
+                col_data = np.sign(col_data) * np.log1p(np.abs(col_data))
+                abs_max = np.nanmax(np.abs(col_data))
+            
+            scale = max(abs_max, 1e-10)  # Evita divisione per zero
+            
+            # Scala e calcola statistiche
+            col_scaled = col_data / scale
+            mean = np.nanmean(col_scaled)
+            std = np.nanstd(col_scaled)
+            std = max(std, 1e-10)  # Evita divisione per zero
+            
+            scales.append(scale)
+            means.append(mean)
+            stds.append(std)
+            cols.append(col)
         
-        # Applica la trasformazione con reindexing sicuro
-        chunk_scale = scale.reindex(chunk.columns, fill_value=1.0)
-        chunk_means_s = means_s.reindex(chunk.columns, fill_value=0.0)
-        chunk_stds_s = stds_s.reindex(chunk.columns, fill_value=1.0)
+        self._scale = pd.Series(scales, index=cols)
+        self._means = pd.Series(means, index=cols)
+        self._stds = pd.Series(stds, index=cols)
         
-        # Applica la standardizzazione: (X/scale - mean) / std
-        transformed = (chunk / chunk_scale - chunk_means_s) / chunk_stds_s
-        
-        # Gestisci eventuali risultati infiniti o NaN dalla trasformazione
-        return transformed.replace([np.inf, -np.inf], np.nan)
+        print(f"[StandardScale] Fit completato:")
+        print(f"  Scale range: [{self._scale.min():.6e}, {self._scale.max():.6e}]")
+        print(f"  Means range: [{self._means.min():.6f}, {self._means.max():.6f}]")
+        print(f"  Stds range: [{self._stds.min():.6f}, {self._stds.max():.6f}]")
 
     @Step.requires(root=pd.DataFrame)
     @Step.provides(root=pd.DataFrame)
     def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
-        """Apply standardization to numerical columns using chunked processing."""
-
+        """Apply standardization to numerical columns."""
         numerical_data = root.tab.numerical
-        print(f"[StandardScale2] Inizio run su {numerical_data.shape[0]:,} righe e {numerical_data.shape[1]} colonne")
-
+        
         if numerical_data.shape[1] == 0:
-            print("[StandardScale2] Nessuna colonna numerica da trasformare")
             return {"root": root}
 
-        # Verifica che le statistiche siano state calcolate durante il fit
-        if self._scale is None or self._means_s is None or self._stds_s is None:
-            raise ValueError("StandardScale2 must be fitted before transformation")
-
-        cols = numerical_data.columns
-        scale = self._scale.reindex(cols, fill_value=1.0)
-        means_s = self._means_s.reindex(cols, fill_value=0.0)
-        stds_s = self._stds_s.reindex(cols, fill_value=1.0)
+        # 🔧 Processa colonna per colonna (memory-efficient)
+        transformed = {}
         
+        for col in numerical_data.columns:
+            col_data = numerical_data[col].values.astype(np.float64)
+            
+            # Rimuovi inf/nan
+            col_data = np.where(np.isfinite(col_data), col_data, np.nan)
+            
+            # Recupera parametri di scaling
+            scale = self._scale.get(col, 1.0)
+            mean = self._means.get(col, 0.0)
+            std = self._stds.get(col, 1.0)
+            
+            # 🔧 Se questa colonna aveva valori estremi nel fit, applica lo stesso log-transform
+            if scale > 1e10:  # Euristica: se scale era grande, era stato fatto log-transform
+                col_data = np.sign(col_data) * np.log1p(np.abs(col_data))
+            
+            # Standardizza
+            col_transformed = (col_data / scale - mean) / std
+            
+            # 🔧 Clipping moderato (±10 è sufficiente, ±100 è troppo)
+            col_transformed = np.clip(col_transformed, -10.0, 10.0)
+            
+            # Riempi NaN con 0
+            col_transformed = np.nan_to_num(col_transformed, nan=0.0)
+            
+            transformed[col] = col_transformed
         
-        # SOLUZIONE MEMORY-EFFICIENT: Trasforma in-place chunk per chunk
-        # invece di accumulare tutti i chunk in memoria
-        total_rows = len(numerical_data)
+        # Crea nuovo DataFrame
+        root.tab.numerical = pd.DataFrame(transformed, index=numerical_data.index)
         
-        for start_idx in range(0, total_rows, self._chunk_size):
-            end_idx = min(start_idx + self._chunk_size, total_rows)
-            
-            # Ottieni il chunk corrente
-            chunk_indices = numerical_data.index[start_idx:end_idx]
-            chunk = numerical_data.iloc[start_idx:end_idx]
-            
-            # Trasforma il chunk
-            transformed_chunk = self._process_chunk_transform(chunk, cols, scale, means_s, stds_s)
-            
-            # Aggiorna direttamente il DataFrame originale (in-place)
-            # Questo evita di tenere tutti i chunk in memoria contemporaneamente
-            # root.tab.numerical.loc[chunk_indices, chunk.columns] = transformed_chunk.values
-            col_positions = [root.tab.numerical.columns.get_loc(col) for col in chunk.columns]
-            root.tab.numerical.iloc[start_idx:end_idx, col_positions] = transformed_chunk.values
-            
-            # Opzionale: forza garbage collection ogni N chunk per liberare memoria
-            if (start_idx // self._chunk_size) % 10 == 0:
-                import gc
-                gc.collect()
-            
-            final_data = root.tab.numerical
-            print(f"[StandardScale2] Trasformazione completata:")
-            print(f"[StandardScale2] - Valori finali range: [{final_data.min().min():.6f}, {final_data.max().max():.6f}]")
-            print(f"[StandardScale2] - Media delle medie per colonna: {final_data.mean().mean():.6f}")
-            print(f"[StandardScale2] - Media delle std per colonna: {final_data.std().mean():.6f}")
-            print(f"[StandardScale2] - NaN totali: {final_data.isna().sum().sum():,}")
+        final_data = root.tab.numerical
+        print(f"[StandardScale] Run completato:")
+        print(f"  Range valori: [{final_data.min().min():.6f}, {final_data.max().max():.6f}]")
+        print(f"  NaN totali: {final_data.isna().sum().sum():,}")
         
         return {"root": root}
+# class StandardScale2(FitAwareStep):  
+#     """Standardize numerical columns using mean/std with overflow-safe scaling."""
+
+#     def __init__(
+#         self,
+#         in_scope: str = "data",
+#         out_scope: str = "data",
+#         name: Optional[str] = None,
+#     ) -> None:
+#         self._scale: Optional[pd.Series] = None
+#         self._means_s: Optional[pd.Series] = None
+#         self._stds_s: Optional[pd.Series] = None
+                       
+#         super().__init__(
+#             name=name or "standard_scale",
+#             in_scope=in_scope,
+#             out_scope=out_scope,
+#         )
+
+#     @Step.requires(root=pd.DataFrame)
+#     def fit_impl(self, state: State, root: pd.DataFrame) -> None:
+#         """Fit scaling stats on train split (overflow-safe)."""
+#         numerical_data = root.tab.train.tab.numerical
+        
+#         if numerical_data.shape[1] == 0:
+#             # 🔧 Mantieni float64 per coerenza
+#             self._scale = pd.Series(dtype="float64")
+#             self._means_s = pd.Series(dtype="float64")
+#             self._stds_s = pd.Series(dtype="float64")
+#             return
+
+#         # 🔧 NON convertire a float32, mantieni float64 per calcoli
+#         numerical_data = numerical_data.astype(np.float64, copy=False).replace(
+#             [np.inf, -np.inf], np.nan                       
+#         )
+
+#         # Overflow-safe: compute scale and scaled values efficiently
+#         abs_max = numerical_data.abs().max(axis=0)
+#         self._scale = (
+#             abs_max.fillna(0.0).clip(lower=1e-10, upper=None).where(abs_max > 0.0, 1.0)
+#         )
+
+#         num_scaled = numerical_data / self._scale
+#         self._means_s = num_scaled.mean()
+#         self._stds_s = num_scaled.std(ddof=0).clip(lower=1e-10, upper=None)
+        
+#         print(f"[StandardScale] Fit completato:")
+#         print(f"  Scale range: [{self._scale.min():.6f}, {self._scale.max():.6f}]")
+#         print(f"  Means range: [{self._means_s.min():.6f}, {self._means_s.max():.6f}]")
+#         print(f"  Stds range: [{self._stds_s.min():.6f}, {self._stds_s.max():.6f}]")
+
+#     @Step.requires(root=pd.DataFrame)
+#     @Step.provides(root=pd.DataFrame)
+#     def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+#         """Apply standardization to numerical columns."""
+
+#         numerical_data = root.tab.numerical
+#         if numerical_data.shape[1] == 0:
+#             return {"root": root}
+
+#         # 🔧 Mantieni float64 per calcoli stabili
+#         numerical_data = numerical_data.astype(np.float64, copy=False).replace(
+#             [np.inf, -np.inf], np.nan
+#         )
+
+#         cols = numerical_data.columns
+#         scale = self._scale.reindex(cols, fill_value=1.0)
+#         means_s = self._means_s.reindex(cols, fill_value=0.0)
+#         stds_s = self._stds_s.reindex(cols, fill_value=1.0)
+
+#         # Applica standardizzazione in float64 (stabile)
+#         root.tab.numerical = (numerical_data / scale - means_s) / stds_s
+        
+#         # 🔧 POST-PROCESSING: Clipping per sicurezza (evita inf/nan nel backprop)
+#         final_data = root.tab.numerical
+        
+#         # Clipping aggressivo di valori estremi
+#         final_data = final_data.clip(lower=-100.0, upper=100.0)
+        
+#         # Riempi NaN residui con 0
+#         final_data = final_data.fillna(0.0)
+        
+#         root.tab.numerical = final_data
+        
+#         print(f"[StandardScale] Run completato:")
+#         print(f"  Valori finali range: [{final_data.min().min():.6f}, {final_data.max().max():.6f}]")
+#         print(f"  NaN totali: {final_data.isna().sum().sum():,}")
+#         print(f"  Inf totali: {np.isinf(final_data.values).sum():,}")
+        
+#         return {"root": root}
+
+#==================================================================================
+
+# class StandardScale2(FitAwareStep):  
+#     """Standardize numerical columns using mean/std with overflow-safe scaling and chunk processing."""
+
+#     def __init__(
+#         self,
+#         chunk_size: int = 300000,
+#         in_scope: str = "data",
+#         out_scope: str = "data",
+#         name: Optional[str] = None,
+#     ) -> None:
+#         self._chunk_size = chunk_size
+#         self._scale: Optional[pd.Series] = None
+#         self._means_s: Optional[pd.Series] = None
+#         self._stds_s: Optional[pd.Series] = None
+                       
+#         super().__init__(
+#             name=name or "standard_scale2",
+#             in_scope=in_scope,
+#             out_scope=out_scope,
+#         )
+
+#     def _process_chunk_fit(self, chunk: pd.DataFrame) -> tuple:
+#         """Process a single chunk during fitting phase."""
+#         if chunk.shape[1] == 0:
+#             return None, None, None, 0
+            
+#         # Converti a float64 e gestisci valori infiniti
+#         chunk = chunk.astype(np.float64, copy=False).replace(
+#             [np.inf, -np.inf], np.nan                       
+#         )
+        
+#         # Calcola statistiche per questo chunk
+#         abs_max = chunk.abs().max(axis=0, skipna=True)
+#         chunk_scale = (
+#             abs_max.fillna(0.0).clip(lower=1e-10, upper=None).where(abs_max > 0.0, 1.0)
+#         )
+        
+#         chunk_scaled = chunk / chunk_scale
+#         chunk_sum = chunk_scaled.sum(axis=0, skipna=True)
+#         chunk_sum_sq = (chunk_scaled ** 2).sum(axis=0, skipna=True)
+#         chunk_count = chunk_scaled.count(axis=0)
+        
+#         return chunk_scale, chunk_sum, chunk_sum_sq, chunk_count
+
+#     @Step.requires(root=pd.DataFrame)
+#     def fit_impl(self, state: State, root: pd.DataFrame) -> None:
+#         """Fit scaling stats on train split using chunked processing (overflow-safe)."""
+#         numerical_data = root.tab.train.tab.numerical
+#         print(f"[StandardScale2] Inizio fitting su {numerical_data.shape[0]:,} righe e {numerical_data.shape[1]} colonne")
+
+#         if numerical_data.shape[1] == 0:
+#             self._scale = pd.Series(dtype="float64")
+#             self._means_s = pd.Series(dtype="float64")
+#             self._stds_s = pd.Series(dtype="float64")
+#             return
+
+#         # Inizializza accumulatori per le statistiche
+#         total_scale = None
+#         total_sum = None
+#         total_sum_sq = None
+#         total_count = None
+        
+#         # Processa il dataset in chunk
+#         for start_idx in range(0, len(numerical_data), self._chunk_size):
+#             end_idx = min(start_idx + self._chunk_size, len(numerical_data))
+#             chunk = numerical_data.iloc[start_idx:end_idx]
+            
+#             chunk_scale, chunk_sum, chunk_sum_sq, chunk_count = self._process_chunk_fit(chunk)
+            
+#             if chunk_scale is None:
+#                 continue
+                
+#             # Accumula le statistiche
+#             if total_scale is None:
+#                 total_scale = chunk_scale.copy()
+#                 total_sum = chunk_sum.copy()
+#                 total_sum_sq = chunk_sum_sq.copy()
+#                 total_count = chunk_count.copy()
+#             else:
+#                 # CORREZIONE: Usa np.maximum invece di pd.concat per combinare le scale
+#                 total_scale = pd.Series(
+#                     np.maximum(total_scale.values, chunk_scale.reindex(total_scale.index, fill_value=0).values),
+#                     index=total_scale.index,
+#                     name=total_scale.name
+#                 )
+                
+#                 # Assicurati che gli indici siano allineati per le somme
+#                 total_sum = total_sum.add(chunk_sum, fill_value=0)
+#                 total_sum_sq = total_sum_sq.add(chunk_sum_sq, fill_value=0)
+#                 total_count = total_count.add(chunk_count, fill_value=0)
+
+#         # Salva le scale finali
+#         self._scale = total_scale
+        
+#         # Calcola media e deviazione standard dalle statistiche accumulate
+#         # Evita divisione per zero sostituendo 0 con NaN
+#         valid_counts = total_count.replace(0, np.nan)
+#         self._means_s = (total_sum / valid_counts).fillna(0.0)
+        
+#         # Calcola varianza: E[X²] - E[X]²
+#         mean_sq = (total_sum_sq / valid_counts).fillna(0.0)
+#         variance = (mean_sq - (self._means_s ** 2)).clip(lower=1e-20)
+#         self._stds_s = np.sqrt(variance).clip(lower=1e-10)
+        
+#         # Gestisci casi edge: se non ci sono osservazioni valide, usa valori default
+#         self._stds_s = self._stds_s.fillna(1.0)
+#         print(f"[StandardScale2] Scale range: [{self._scale.min():.6f}, {self._scale.max():.6f}]")
+#         print(f"[StandardScale2] Means range: [{self._means_s.min():.6f}, {self._means_s.max():.6f}]")
+#         print(f"[StandardScale2] Stds range: [{self._stds_s.min():.6f}, {self._stds_s.max():.6f}]")
+#         print("[StandardScale2] Fitting completato")
+
+#     def _process_chunk_transform(self, chunk: pd.DataFrame, cols: pd.Index, 
+#                                 scale: pd.Series, means_s: pd.Series, stds_s: pd.Series) -> pd.DataFrame:
+#         """Process a single chunk during transformation phase."""
+#         if chunk.shape[1] == 0:
+#             return chunk
+            
+#         # Converti a float64 e gestisci valori infiniti
+#         chunk = chunk.astype(np.float64, copy=False).replace(
+#             [np.inf, -np.inf], np.nan
+#         )
+        
+#         # Applica la trasformazione con reindexing sicuro
+#         chunk_scale = scale.reindex(chunk.columns, fill_value=1.0)
+#         chunk_means_s = means_s.reindex(chunk.columns, fill_value=0.0)
+#         chunk_stds_s = stds_s.reindex(chunk.columns, fill_value=1.0)
+        
+#         # Applica la standardizzazione: (X/scale - mean) / std
+#         transformed = (chunk / chunk_scale - chunk_means_s) / chunk_stds_s
+        
+#         # Gestisci eventuali risultati infiniti o NaN dalla trasformazione
+#         return transformed.replace([np.inf, -np.inf], np.nan)
+
+#     @Step.requires(root=pd.DataFrame)
+#     @Step.provides(root=pd.DataFrame)
+#     def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+#         """Apply standardization to numerical columns using chunked processing."""
+
+#         numerical_data = root.tab.numerical
+#         print(f"[StandardScale2] Inizio run su {numerical_data.shape[0]:,} righe e {numerical_data.shape[1]} colonne")
+
+#         if numerical_data.shape[1] == 0:
+#             print("[StandardScale2] Nessuna colonna numerica da trasformare")
+#             return {"root": root}
+
+#         # Verifica che le statistiche siano state calcolate durante il fit
+#         if self._scale is None or self._means_s is None or self._stds_s is None:
+#             raise ValueError("StandardScale2 must be fitted before transformation")
+
+#         cols = numerical_data.columns
+#         scale = self._scale.reindex(cols, fill_value=1.0)
+#         means_s = self._means_s.reindex(cols, fill_value=0.0)
+#         stds_s = self._stds_s.reindex(cols, fill_value=1.0)
+        
+        
+#         # SOLUZIONE MEMORY-EFFICIENT: Trasforma in-place chunk per chunk
+#         # invece di accumulare tutti i chunk in memoria
+#         total_rows = len(numerical_data)
+        
+#         for start_idx in range(0, total_rows, self._chunk_size):
+#             end_idx = min(start_idx + self._chunk_size, total_rows)
+            
+#             # Ottieni il chunk corrente
+#             chunk_indices = numerical_data.index[start_idx:end_idx]
+#             chunk = numerical_data.iloc[start_idx:end_idx]
+            
+#             # Trasforma il chunk
+#             transformed_chunk = self._process_chunk_transform(chunk, cols, scale, means_s, stds_s)
+            
+#             # Aggiorna direttamente il DataFrame originale (in-place)
+#             # Questo evita di tenere tutti i chunk in memoria contemporaneamente
+#             # root.tab.numerical.loc[chunk_indices, chunk.columns] = transformed_chunk.values
+#             col_positions = [root.tab.numerical.columns.get_loc(col) for col in chunk.columns]
+#             root.tab.numerical.iloc[start_idx:end_idx, col_positions] = transformed_chunk.values
+            
+#             # Opzionale: forza garbage collection ogni N chunk per liberare memoria
+#             if (start_idx // self._chunk_size) % 10 == 0:
+#                 import gc
+#                 gc.collect()
+            
+#             final_data = root.tab.numerical
+#             print(f"[StandardScale2] Trasformazione completata:")
+#             print(f"[StandardScale2] - Valori finali range: [{final_data.min().min():.6f}, {final_data.max().max():.6f}]")
+#             print(f"[StandardScale2] - Media delle medie per colonna: {final_data.mean().mean():.6f}")
+#             print(f"[StandardScale2] - Media delle std per colonna: {final_data.std().mean():.6f}")
+#             print(f"[StandardScale2] - NaN totali: {final_data.isna().sum().sum():,}")
+        
+#         return {"root": root}
     
     
 class ZScaler(FitAwareStep):

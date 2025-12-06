@@ -223,16 +223,16 @@ def parse_evolution_data(filepath):
     }
 
 
-def generate_class_abbreviations(class_names):
-    """
-    Genera abbreviazioni intelligenti per nomi di classi lunghi.
+""" def generate_class_abbreviations(class_names):
     
-    Args:
-        class_names: lista di nomi completi
+    #Genera abbreviazioni intelligenti per nomi di classi lunghi.
+    #
+    #Args:
+    #    class_names: lista di nomi completi
+    #
+    #Returns:
+    #    lista di abbreviazioni (max 15 caratteri)
     
-    Returns:
-        lista di abbreviazioni (max 15 caratteri)
-    """
     abbreviations = []
     
     for name in class_names:
@@ -255,8 +255,67 @@ def generate_class_abbreviations(class_names):
         
         abbreviations.append(abbr)
     
+    return abbreviations """
+def generate_class_abbreviations(class_names):
+    """
+    Genera abbreviazioni intelligenti per nomi di classi lunghi.
+    
+    Regole di abbreviazione:
+    - BruteForce → BF
+    - SlowHTTPTest → SHTTPTest
+    - Injection → Inj
+    - attack/attacks → rimossi
+    - Max 18 caratteri per evitare tagli
+    
+    Args:
+        class_names: lista di nomi completi
+    
+    Returns:
+        lista di abbreviazioni
+    """
+    abbreviations = []
+    
+    for name in class_names:
+        # Step 1: Rimuovi "attack" e "attacks"
+        name_clean = name.replace(' attack', '').replace(' attacks', '')
+        
+        # Step 2: Applica abbreviazioni intelligenti
+        
+        # BruteForce → BF
+        name_clean = name_clean.replace('BruteForce', 'BF')
+        name_clean = name_clean.replace('Bruteforce', 'BF')
+        name_clean = name_clean.replace('brute-force', 'BF')
+        
+        # SlowHTTPTest → SHTTPTest
+        name_clean = name_clean.replace('SlowHTTPTest', 'SHTTPTest')
+        
+        # Injection → Inj
+        name_clean = name_clean.replace('Injection', 'Inj')
+        name_clean = name_clean.replace('injection', 'Inj')
+        
+        # Penetration → Pene
+        #name_clean = name_clean.replace('Penetration', 'Pene')
+        
+        # Botnet → Bot
+        name_clean = name_clean.replace('Botnet', 'Bot')
+        
+        # Step 3: Se ancora troppo lungo, tronca intelligentemente
+        if len(name_clean) <= 18:
+            abbreviations.append(name_clean)
+        else:
+            # Se contiene "-", usa solo la parte più importante
+            if '-' in name_clean:
+                parts = name_clean.split('-')
+                # Prendi le prime 2 parti, tronca se necessario
+                abbr = '-'.join(parts[:2])
+                if len(abbr) > 18:
+                    abbr = parts[0][:10] + '-' + parts[1][:7]
+                abbreviations.append(abbr)
+            else:
+                # Altrimenti tronca semplicemente
+                abbreviations.append(name_clean[:18])
+    
     return abbreviations
-
 
 # ═══════════════════════════════════════════════════════════════════
 # FUNZIONE AGGREGAZIONE MULTI-EPOCH - TRACKING EVOLUZIONE METRICHE
@@ -682,7 +741,7 @@ def plot_metrics_evolution_lines(aggregated_data, metric='f1_score',
     plt.close()
 
 
-def generate_evolution_analysis(folder_path, output_dir, pattern='*.txt'):
+def generate_evolution_analysis(folder_path, output_dir, pattern='*.txt', previous_model_path=None, version_title=''):
     """
     Pipeline completa: aggrega dati + esporta tabelle + genera grafici.
     """
@@ -750,12 +809,29 @@ def generate_evolution_analysis(folder_path, output_dir, pattern='*.txt'):
     print(f"📁 Risultati salvati in: {output_dir.resolve()}")
     print("=" * 100)
     
+    # ═══════════════════════════════════════════════════════════════════
+    # ✅ GENERA GRAFICO COMPARATIVO F1 (CON VERSIONE PRECEDENTE)
+    # ═══════════════════════════════════════════════════════════════════
+
+    print(f"\n📊 GENERAZIONE GRAFICO COMPARATIVO F1-SCORE")
+
+    try:
+        compare_f1_two_models(
+            current_model_path=Path(folder_path).parent.parent,  # Sali a livello modello
+            previous_model_path=previous_model_path,
+            output_dir=subdirs['heatmap'].parent,  # Salva in analysis_results
+            version_title=version_title
+        )
+        print(f"✅ Grafico comparativo F1 generato con successo!")
+    except Exception as e:
+        print(f"⚠️ Errore nella generazione grafico comparativo F1: {e}")
+    
     return agg_data, summaries, subdirs  # ✅ Ritorna anche i percorsi
 # ═══════════════════════════════════════════════════════════════════
 # FUNZIONE PRINCIPALE - GENERA TUTTI I GRAFICI
 # ═══════════════════════════════════════════════════════════════════
 
-def generate_analysis(classification_data, evolution_data, output_dir):
+def generate_analysis(classification_data, evolution_data, output_dir, version_title=''):
     """
     Genera tutti i grafici di analisi.
     
@@ -833,8 +909,15 @@ def generate_analysis(classification_data, evolution_data, output_dir):
     # ✅ ESPORTA CORRELAZIONE IN TXT E MARKDOWN
     # ═══════════════════════════════════════════════════════════════
 
+    if version_title:
+        corr_txt_name = f'{version_title}_correlation_results.txt'
+        corr_md_name = f'{version_title}_correlation_analysis.md'
+    else:
+        corr_txt_name = 'v0_correlation_results.txt'
+        corr_md_name = 'v0_correlation_analysis.md'
+   
     # File TXT (formato classico)
-    with open(output_dir / 'v0_correlation_results.txt', 'w') as f:
+    with open(output_dir / corr_txt_name, 'w') as f:
         f.write(f"Pearson linear: r={corr_linear:.4f}, p={p_linear:.6f}\n")
         f.write(f"Pearson log10: r={corr_log:.4f}, p={p_log:.6f}\n")
         f.write(f"Interpretazione (log10): {interpretation}\n")
@@ -865,12 +948,16 @@ def generate_analysis(classification_data, evolution_data, output_dir):
     *Correlazione calcolata su {len(class_names)} classi - Data: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}*
     """
 
-    with open(output_dir / 'v0_correlation_analysis.md', 'w', encoding='utf-8') as f:
-        f.write(correlation_md)
+    with open(output_dir / corr_md_name, 'w', encoding='utf-8') as f:
+       f.write(correlation_md)
+    # with open(output_dir / '{version_title}_v0_correlation_analysis.md', 'w', encoding='utf-8') as f:
+    #     f.write(correlation_md)
 
     print(f"✅ Correlazione salvata:")
     print(f"   📄 v0_correlation_results.txt")
     print(f"   📄 v0_correlation_analysis.md")
+    #print(f"   📄 {version_title}_v0_correlation_results.txt")
+    #print(f"   📄 {version_title}_v0_correlation_analysis.md")
     
     # Identifica classi critiche
     critical_mask = f1_scores < 0.5
@@ -920,8 +1007,13 @@ def generate_analysis(classification_data, evolution_data, output_dir):
     fig.text(0.55, SF_TITLE_Y, 'Support vs F1-score — Analisi di Distribuzione',
             fontsize=24, fontweight='bold', ha='center', family='sans-serif')
 
-    fig.text(0.55, SF_SUBTITLE_Y, 
-            'Impatto dello sbilanciamento dei dati sulle performance — V0_no_weight (Epoch 10)',
+    # fig.text(0.55, SF_SUBTITLE_Y, 
+    #         'Impatto dello sbilanciamento dei dati sulle performance — V0_smoothed (Epoch 10)',
+    #         fontsize=17, ha='center', style='italic', color='#555555')
+    # Estrai l'epoca dai dati (se disponibile)
+    epoch_info = classification_data.get('epoch', '?')
+    
+    fig.text(0.55, SF_SUBTITLE_Y, f'Impatto dello sbilanciamento dei dati sulle performance - {version_title} (Epoca {epoch_info})',
             fontsize=17, ha='center', style='italic', color='#555555')
 
     # ═══════════════════════════════════════════════════════════════════
@@ -1356,14 +1448,18 @@ def generate_analysis(classification_data, evolution_data, output_dir):
     # Legend pulita
     ax.legend(loc='lower right', fontsize=13, frameon=True, 
             framealpha=0.95, edgecolor='#BDBDBD', fancybox=True)
-
+    if version_title:
+        filename = f'{version_title}_support_vs_f1.png'
+    else:
+        filename = 'support_vs_f1.png'
+        
     # Salvataggio
-    plt.savefig(output_dir / 'v0_support_vs_f1_IMPROVED.png', 
+    plt.savefig(output_dir / filename, 
                 dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
 
     print("✅ Grafico migliorato salvato con successo!")
-    print(f"   → {output_dir / 'v0_support_vs_f1.png'}")
+    print(f"   → {output_dir / filename}")
     
     print("✅ Grafico 1 salvato: support_vs_f1.png")
     
@@ -1452,11 +1548,15 @@ def generate_analysis(classification_data, evolution_data, output_dir):
     # ═══════════════════════════════════════════════════════════════════
     # TITOLO E SOTTOTITOLO
     # ═══════════════════════════════════════════════════════════════════
-
     fig.text(0.55, PR_TITLE_Y, 'Trade-off Precision-Recall per Classe di Attacco',
             fontsize=24, fontweight='bold', ha='center', family='sans-serif')
 
-    fig.text(0.55, PR_SUBTITLE_Y, 'V0_no_weight (Epoca 10) - Modello di Classificazione Multi-Classe',
+    # fig.text(0.55, PR_SUBTITLE_Y, f'{version_title} (Epoca 10) - Modello di Classificazione Multi-Classe',
+    #         fontsize=17, ha='center', style='italic', color='#555555')
+    # Estrai l'epoca dai dati (se disponibile)
+    epoch_info = classification_data.get('epoch', '?')
+    
+    fig.text(0.55, PR_SUBTITLE_Y, f'{version_title} (Epoca {epoch_info}) - Modello di Classificazione Multi-Classe',
             fontsize=17, ha='center', style='italic', color='#555555')
 
     # ═══════════════════════════════════════════════════════════════════
@@ -1929,7 +2029,13 @@ def generate_analysis(classification_data, evolution_data, output_dir):
     # SALVATAGGIO
     # ═══════════════════════════════════════════════════════════════════
 
-    plt.savefig(output_dir/'v0_precision_recall.png',
+    if version_title:
+        filename = f'{version_title}_precision_recall.png'
+    else:
+        filename = 'precision_recall.png'
+        
+    
+    plt.savefig(output_dir/ filename,
             dpi=400, bbox_inches='tight', facecolor='white')
 
     
@@ -1939,538 +2045,979 @@ def generate_analysis(classification_data, evolution_data, output_dir):
     # GRAFICO 3: EVOLUTION (se disponibile)
     # ═══════════════════════════════════════════════════════════════
     
-    if evolution_data:
-        print("\n📈 Generazione grafico 3: F1 Evolution...")
+    # if evolution_data:
+    #     print("\n📈 Generazione grafico 3: F1 Evolution...")
         
-        epochs = evolution_data['epochs']
-        class_evolution = evolution_data['class_evolution']
+    #     epochs = evolution_data['epochs']
+    #     class_evolution = evolution_data['class_evolution']
         
-        # [QUI INSERISCI IL CODICE DEL GRAFICO EVOLUTION]
-        # Usa epochs e class_evolution invece dei valori hard-coded
-        print("\n" + "=" * 70)
-        print("📈 GENERAZIONE EVOLUTION PLOT (LAYOUT PROFESSIONALE)")
-        print("=" * 70)
+    #     # [QUI INSERISCI IL CODICE DEL GRAFICO EVOLUTION]
+    #     # Usa epochs e class_evolution invece dei valori hard-coded
+    #     print("\n" + "=" * 70)
+    #     print("📈 GENERAZIONE EVOLUTION PLOT (LAYOUT PROFESSIONALE)")
+    #     print("=" * 70)
 
-        # ═══════════════════════════════════════════════════════════════════
-        # DATI EVOLUTION
-        # ═══════════════════════════════════════════════════════════════════
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # DATI EVOLUTION
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        epochs = np.array([1, 10])
-        f1_loic_udp = np.array([0.3781, 0.3922])
-        f1_ftp = np.array([0.0034, 0.1413])
-        f1_sql = np.array([0.0349, 0.2018])
-        f1_ssh = np.array([0.0000, 0.1365])
+    #     epochs = np.array([1, 10])
+    #     f1_loic_udp = np.array([0.3781, 0.3922])
+    #     f1_ftp = np.array([0.0034, 0.1413])
+    #     f1_sql = np.array([0.0349, 0.2018])
+    #     f1_ssh = np.array([0.0000, 0.1365])
 
-        # Calcola miglioramenti
-        improvements_data = [
-            ('DDOS attack-LOIC-UDP', f1_loic_udp, '#3498DB'),
-            ('FTP-BruteForce', f1_ftp, '#E67E22'),
-            ('SQL Injection', f1_sql, '#27AE60'),
-            ('SSH-Bruteforce', f1_ssh, '#E74C3C')
-        ]
+    #     # Calcola miglioramenti
+    #     improvements_data = [
+    #         ('DDOS attack-LOIC-UDP', f1_loic_udp, '#3498DB'),
+    #         ('FTP-BruteForce', f1_ftp, '#E67E22'),
+    #         ('SQL Injection', f1_sql, '#27AE60'),
+    #         ('SSH-Bruteforce', f1_ssh, '#E74C3C')
+    #     ]
 
-        # Status complessivo
-        mean_improvement = np.mean([
-            (f1_loic_udp[-1] - f1_loic_udp[0]) / (f1_loic_udp[0] + 1e-10) * 100,
-            (f1_ftp[-1] - f1_ftp[0]) / (f1_ftp[0] + 1e-10) * 100,
-            (f1_sql[-1] - f1_sql[0]) / (f1_sql[0] + 1e-10) * 100,
-            (f1_ssh[-1] - f1_ssh[0] + 0.1365) / 0.1365 * 100  # SSH parte da 0
-        ])
+    #     # Status complessivo
+    #     mean_improvement = np.mean([
+    #         (f1_loic_udp[-1] - f1_loic_udp[0]) / (f1_loic_udp[0] + 1e-10) * 100,
+    #         (f1_ftp[-1] - f1_ftp[0]) / (f1_ftp[0] + 1e-10) * 100,
+    #         (f1_sql[-1] - f1_sql[0]) / (f1_sql[0] + 1e-10) * 100,
+    #         (f1_ssh[-1] - f1_ssh[0] + 0.1365) / 0.1365 * 100  # SSH parte da 0
+    #     ])
 
-        if mean_improvement >= 300:
-            status_text = "SIGNIFICATIVO"
-            status_color = "#F57C00"
-        elif mean_improvement >= 100:
-            status_text = "MODERATO"
-            status_color = "#FBC02D"
-        else:
-            status_text = "LIMITATO"
-            status_color = "#C62828"
+    #     if mean_improvement >= 300:
+    #         status_text = "SIGNIFICATIVO"
+    #         status_color = "#F57C00"
+    #     elif mean_improvement >= 100:
+    #         status_text = "MODERATO"
+    #         status_color = "#FBC02D"
+    #     else:
+    #         status_text = "LIMITATO"
+    #         status_color = "#C62828"
 
-        # ═══════════════════════════════════════════════════════════════════
-        # CONFIGURAZIONE FIGURA - LAYOUT OTTIMIZZATO
-        # ═══════════════════════════════════════════════════════════════════
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # CONFIGURAZIONE FIGURA - LAYOUT OTTIMIZZATO
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        fig = plt.figure(figsize=(26, 15))
-        fig.patch.set_facecolor('white')
+    #     fig = plt.figure(figsize=(26, 15))
+    #     fig.patch.set_facecolor('white')
 
-        # Coordinate layout (proporzionate come Precision-Recall)
-        TITLE_Y = 0.975
-        SUBTITLE_Y = 0.945
+    #     # Coordinate layout (proporzionate come Precision-Recall)
+    #     TITLE_Y = 0.975
+    #     SUBTITLE_Y = 0.945
 
-        # GRAFICO PRINCIPALE - Centrato a sinistra (più grande)
-        GRAPH_X = 0.07
-        GRAPH_Y = 0.07
-        GRAPH_W = 0.53
-        GRAPH_H = 0.72
+    #     # GRAFICO PRINCIPALE - Centrato a sinistra (più grande)
+    #     GRAPH_X = 0.07
+    #     GRAPH_Y = 0.07
+    #     GRAPH_W = 0.53
+    #     GRAPH_H = 0.72
 
-        # LEGENDA - Tabella sopra il grafico
-        LEGEND_X = 0.1385
-        LEGEND_Y = 0.812
-        LEGEND_W = 0.39
-        LEGEND_H = 0.10
+    #     # LEGENDA - Tabella sopra il grafico
+    #     LEGEND_X = 0.1385
+    #     LEGEND_Y = 0.812
+    #     LEGEND_W = 0.39
+    #     LEGEND_H = 0.10
 
-        # TABELLA METRICHE AGGREGATE - Sopra a destra
-        METRICS_TABLE_X = 0.645
-        METRICS_TABLE_Y = 0.715
-        METRICS_TABLE_W = 0.32
-        METRICS_TABLE_H = 0.20
+    #     # TABELLA METRICHE AGGREGATE - Sopra a destra
+    #     METRICS_TABLE_X = 0.645
+    #     METRICS_TABLE_Y = 0.715
+    #     METRICS_TABLE_W = 0.32
+    #     METRICS_TABLE_H = 0.20
 
-        # TABELLA MIGLIORAMENTI DETTAGLIATI - Centro destra
-        DETAIL_TABLE_X = 0.645
-        DETAIL_TABLE_Y = 0.235
-        DETAIL_TABLE_W = 0.32
-        DETAIL_TABLE_H = 0.47
+    #     # TABELLA MIGLIORAMENTI DETTAGLIATI - Centro destra
+    #     DETAIL_TABLE_X = 0.645
+    #     DETAIL_TABLE_Y = 0.235
+    #     DETAIL_TABLE_W = 0.32
+    #     DETAIL_TABLE_H = 0.47
 
-        # TABELLA ALERT - Sotto destra
-        ALERT_TABLE_X = 0.645
-        ALERT_TABLE_Y = 0.065
-        ALERT_TABLE_W = 0.32
-        ALERT_TABLE_H = 0.15
+    #     # TABELLA ALERT - Sotto destra
+    #     ALERT_TABLE_X = 0.645
+    #     ALERT_TABLE_Y = 0.065
+    #     ALERT_TABLE_W = 0.32
+    #     ALERT_TABLE_H = 0.15
 
-        # ═══════════════════════════════════════════════════════════════════
-        # TITOLO E SOTTOTITOLO
-        # ═══════════════════════════════════════════════════════════════════
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # TITOLO E SOTTOTITOLO
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        fig.text(0.55, TITLE_Y, 'Evoluzione delle Performance per Classi Minoritarie',
-                fontsize=24, fontweight='bold', ha='center', family='sans-serif')
+    #     fig.text(0.55, TITLE_Y, 'Evoluzione delle Performance per Classi Minoritarie',
+    #             fontsize=24, fontweight='bold', ha='center', family='sans-serif')
 
-        fig.text(0.55, SUBTITLE_Y, 'V0_no_weight (Training Epoch 1 → 10) - Analisi Progressione F1-Score',
-                fontsize=17, ha='center', style='italic', color='#555555')
+    #     fig.text(0.55, SUBTITLE_Y, 'V0_no_weight (Training Epoch 1 → 10) - Analisi Progressione F1-Score',
+    #             fontsize=17, ha='center', style='italic', color='#555555')
 
-        # ═══════════════════════════════════════════════════════════════════
-        # TABELLA METRICHE AGGREGATE (SOPRA DESTRA) - STILE WORD
-        # ═══════════════════════════════════════════════════════════════════
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # TABELLA METRICHE AGGREGATE (SOPRA DESTRA) - STILE WORD
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        metrics_ax = plt.axes([METRICS_TABLE_X, METRICS_TABLE_Y, METRICS_TABLE_W, METRICS_TABLE_H])
-        metrics_ax.axis('off')
+    #     metrics_ax = plt.axes([METRICS_TABLE_X, METRICS_TABLE_Y, METRICS_TABLE_W, METRICS_TABLE_H])
+    #     metrics_ax.axis('off')
 
-        # Bordo tabella
-        metrics_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
-                                        fill=False, edgecolor='#1976D2',
-                                        linewidth=3, transform=metrics_ax.transAxes))
+    #     # Bordo tabella
+    #     metrics_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
+    #                                     fill=False, edgecolor='#1976D2',
+    #                                     linewidth=3, transform=metrics_ax.transAxes))
 
-        # Header tabella
-        metrics_ax.add_patch(plt.Rectangle((0, 0.83), 1, 0.17,
-                                        fill=True, facecolor='#E3F2FD',
-                                        edgecolor='#1976D2', linewidth=1.8,
-                                        transform=metrics_ax.transAxes))
+    #     # Header tabella
+    #     metrics_ax.add_patch(plt.Rectangle((0, 0.83), 1, 0.17,
+    #                                     fill=True, facecolor='#E3F2FD',
+    #                                     edgecolor='#1976D2', linewidth=1.8,
+    #                                     transform=metrics_ax.transAxes))
 
-        metrics_ax.text(0.5, 0.91, 'SINTESI PROGRESSIONE',
-                        fontsize=19, fontweight='bold', ha='center', va='center',
-                        transform=metrics_ax.transAxes)
+    #     metrics_ax.text(0.5, 0.91, 'SINTESI PROGRESSIONE',
+    #                     fontsize=19, fontweight='bold', ha='center', va='center',
+    #                     transform=metrics_ax.transAxes)
 
-        # Header colonne
-        metrics_ax.add_patch(plt.Rectangle((0, 0.70), 1, 0.13,
-                                        fill=True, facecolor='#F5F5F5',
-                                        transform=metrics_ax.transAxes))
+    #     # Header colonne
+    #     metrics_ax.add_patch(plt.Rectangle((0, 0.70), 1, 0.13,
+    #                                     fill=True, facecolor='#F5F5F5',
+    #                                     transform=metrics_ax.transAxes))
 
-        metrics_ax.text(0.35, 0.765, 'Metrica',
-                        fontsize=17, fontweight='bold', ha='center', va='center',
-                        transform=metrics_ax.transAxes)
-        metrics_ax.text(0.70, 0.765, 'Valore',
-                        fontsize=17, fontweight='bold', ha='center', va='center',
-                        transform=metrics_ax.transAxes)
+    #     metrics_ax.text(0.35, 0.765, 'Metrica',
+    #                     fontsize=17, fontweight='bold', ha='center', va='center',
+    #                     transform=metrics_ax.transAxes)
+    #     metrics_ax.text(0.70, 0.765, 'Valore',
+    #                     fontsize=17, fontweight='bold', ha='center', va='center',
+    #                     transform=metrics_ax.transAxes)
 
-        # Linea separatrice header
-        metrics_ax.plot([0, 1], [0.70, 0.70], 'k-', linewidth=1.5,
-                        transform=metrics_ax.transAxes)
+    #     # Linea separatrice header
+    #     metrics_ax.plot([0, 1], [0.70, 0.70], 'k-', linewidth=1.5,
+    #                     transform=metrics_ax.transAxes)
 
-        # Calcola metriche aggregate
-        final_f1_values = [f1_loic_udp[-1], f1_ftp[-1], f1_sql[-1], f1_ssh[-1]]
-        initial_f1_values = [f1_loic_udp[0], f1_ftp[0], f1_sql[0], f1_ssh[0]]
-        mean_final = np.mean(final_f1_values)
-        mean_initial = np.mean(initial_f1_values)
-        mean_delta = mean_final - mean_initial
+    #     # Calcola metriche aggregate
+    #     final_f1_values = [f1_loic_udp[-1], f1_ftp[-1], f1_sql[-1], f1_ssh[-1]]
+    #     initial_f1_values = [f1_loic_udp[0], f1_ftp[0], f1_sql[0], f1_ssh[0]]
+    #     mean_final = np.mean(final_f1_values)
+    #     mean_initial = np.mean(initial_f1_values)
+    #     mean_delta = mean_final - mean_initial
 
-        # Righe dati
-        metrics_data = [
-            ('F1 medio Epoch 1', f'{mean_initial:.4f}'),
-            ('F1 medio Epoch 10', f'{mean_final:.4f}'),
-            ('Miglioramento Δ', f'+{mean_delta:.4f}')
-        ]
+    #     # Righe dati
+    #     metrics_data = [
+    #         ('F1 medio Epoch 1', f'{mean_initial:.4f}'),
+    #         ('F1 medio Epoch 10', f'{mean_final:.4f}'),
+    #         ('Miglioramento Δ', f'+{mean_delta:.4f}')
+    #     ]
 
-        y_start = 0.58
-        row_height = 0.13
+    #     y_start = 0.58
+    #     row_height = 0.13
 
-        for i, (metric, value) in enumerate(metrics_data):
-            y_pos = y_start - i * row_height
+    #     for i, (metric, value) in enumerate(metrics_data):
+    #         y_pos = y_start - i * row_height
             
-            # Background alternato
-            if i % 2 == 0:
-                metrics_ax.add_patch(plt.Rectangle((0, y_pos - 0.055), 1, row_height - 0.005,
-                                                fill=True, facecolor='#FAFAFA',
-                                                transform=metrics_ax.transAxes))
+    #         # Background alternato
+    #         if i % 2 == 0:
+    #             metrics_ax.add_patch(plt.Rectangle((0, y_pos - 0.055), 1, row_height - 0.005,
+    #                                             fill=True, facecolor='#FAFAFA',
+    #                                             transform=metrics_ax.transAxes))
             
-            metrics_ax.text(0.35, y_pos, metric,
-                            fontsize=16, ha='center', va='center',
-                            fontweight='bold',
-                            transform=metrics_ax.transAxes)
-            metrics_ax.text(0.70, y_pos, value,
-                            fontsize=16, ha='center', va='center',
-                            family='monospace',
-                            transform=metrics_ax.transAxes)
+    #         metrics_ax.text(0.35, y_pos, metric,
+    #                         fontsize=16, ha='center', va='center',
+    #                         fontweight='bold',
+    #                         transform=metrics_ax.transAxes)
+    #         metrics_ax.text(0.70, y_pos, value,
+    #                         fontsize=16, ha='center', va='center',
+    #                         family='monospace',
+    #                         transform=metrics_ax.transAxes)
 
-        # Separatore prima del status
-        metrics_ax.plot([0, 1], [0.19, 0.19], 'k-', linewidth=1.5,
-                        transform=metrics_ax.transAxes)
+    #     # Separatore prima del status
+    #     metrics_ax.plot([0, 1], [0.19, 0.19], 'k-', linewidth=1.5,
+    #                     transform=metrics_ax.transAxes)
 
-        # Status finale
-        metrics_ax.add_patch(plt.Rectangle((0, 0), 1, 0.19,
-                                        fill=True, facecolor=status_color,
-                                        alpha=0.15,
-                                        transform=metrics_ax.transAxes))
+    #     # Status finale
+    #     metrics_ax.add_patch(plt.Rectangle((0, 0), 1, 0.19,
+    #                                     fill=True, facecolor=status_color,
+    #                                     alpha=0.15,
+    #                                     transform=metrics_ax.transAxes))
 
-        metrics_ax.text(0.35, 0.095, 'Tipo Miglioramento',
-                        fontsize=15, ha='center', va='center',
-                        fontweight='bold',
-                        transform=metrics_ax.transAxes)
-        metrics_ax.text(0.70, 0.095, status_text,
-                        fontsize=15, ha='center', va='center',
-                        fontweight='bold', color=status_color,
-                        transform=metrics_ax.transAxes)
+    #     metrics_ax.text(0.35, 0.095, 'Tipo Miglioramento',
+    #                     fontsize=15, ha='center', va='center',
+    #                     fontweight='bold',
+    #                     transform=metrics_ax.transAxes)
+    #     metrics_ax.text(0.70, 0.095, status_text,
+    #                     fontsize=15, ha='center', va='center',
+    #                     fontweight='bold', color=status_color,
+    #                     transform=metrics_ax.transAxes)
 
-        # ═══════════════════════════════════════════════════════════════════
-        # LEGENDA - TABELLA STILE WORD SOPRA IL GRAFICO
-        # ═══════════════════════════════════════════════════════════════════
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # LEGENDA - TABELLA STILE WORD SOPRA IL GRAFICO
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        legend_ax = plt.axes([LEGEND_X, LEGEND_Y, LEGEND_W, LEGEND_H])
-        legend_ax.axis('off')
+    #     legend_ax = plt.axes([LEGEND_X, LEGEND_Y, LEGEND_W, LEGEND_H])
+    #     legend_ax.axis('off')
 
-        # Bordo tabella
-        legend_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
-                                        fill=False, edgecolor='#424242',
-                                        linewidth=2.5, transform=legend_ax.transAxes))
+    #     # Bordo tabella
+    #     legend_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
+    #                                     fill=False, edgecolor='#424242',
+    #                                     linewidth=2.5, transform=legend_ax.transAxes))
 
-        # Header
-        legend_ax.add_patch(plt.Rectangle((0, 0.70), 1, 0.30,
-                                        fill=True, facecolor='#ECEFF1',
-                                        edgecolor='#424242', linewidth=1.5,
-                                        transform=legend_ax.transAxes))
+    #     # Header
+    #     legend_ax.add_patch(plt.Rectangle((0, 0.70), 1, 0.30,
+    #                                     fill=True, facecolor='#ECEFF1',
+    #                                     edgecolor='#424242', linewidth=1.5,
+    #                                     transform=legend_ax.transAxes))
 
-        legend_ax.text(0.5, 0.85, 'LEGENDA GRAFICO',
-                    fontsize=19, fontweight='bold', ha='center', va='center',
-                    transform=legend_ax.transAxes)
+    #     legend_ax.text(0.5, 0.85, 'LEGENDA GRAFICO',
+    #                 fontsize=19, fontweight='bold', ha='center', va='center',
+    #                 transform=legend_ax.transAxes)
 
-        # Linea separatrice
-        legend_ax.plot([0, 1], [0.70, 0.70], 'k-', linewidth=1.5,
-                    transform=legend_ax.transAxes)
+    #     # Linea separatrice
+    #     legend_ax.plot([0, 1], [0.70, 0.70], 'k-', linewidth=1.5,
+    #                 transform=legend_ax.transAxes)
 
-        # Contenuto - Riga 1: Classi
-        legend_ax.text(0.03, 0.48, '• Classi:',
-                    fontsize=16, ha='left', va='center', fontweight='bold',
-                    transform=legend_ax.transAxes)
-        legend_ax.text(0.20, 0.48, 'LOIC-UDP (●—)  |  FTP-BF (■- -)  |  SQL Inj (▲-·)  |  SSH-BF (♦···)',
-                    fontsize=14, ha='left', va='center', family='monospace',
-                    transform=legend_ax.transAxes)
+    #     # Contenuto - Riga 1: Classi
+    #     legend_ax.text(0.03, 0.48, '• Classi:',
+    #                 fontsize=16, ha='left', va='center', fontweight='bold',
+    #                 transform=legend_ax.transAxes)
+    #     legend_ax.text(0.20, 0.48, 'LOIC-UDP (●—)  |  FTP-BF (■- -)  |  SQL Inj (▲-·)  |  SSH-BF (♦···)',
+    #                 fontsize=14, ha='left', va='center', family='monospace',
+    #                 transform=legend_ax.transAxes)
 
-        # Separatore
-        legend_ax.plot([0.02, 0.98], [0.37, 0.37], '-', color='#BDBDBD', 
-                    linewidth=1, alpha=0.5, transform=legend_ax.transAxes)
+    #     # Separatore
+    #     legend_ax.plot([0.02, 0.98], [0.37, 0.37], '-', color='#BDBDBD', 
+    #                 linewidth=1, alpha=0.5, transform=legend_ax.transAxes)
 
-        # Contenuto - Riga 2: Soglie
-        legend_ax.text(0.03, 0.20, '• Soglie:',
-                    fontsize=16, ha='left', va='center', fontweight='bold',
-                    transform=legend_ax.transAxes)
-        legend_ax.text(0.20, 0.20, 'Accettabile F1=0.5 (- -)  |  Critica F1=0.3 (···)',
-                    fontsize=14, ha='left', va='center',
-                    transform=legend_ax.transAxes)
+    #     # Contenuto - Riga 2: Soglie
+    #     legend_ax.text(0.03, 0.20, '• Soglie:',
+    #                 fontsize=16, ha='left', va='center', fontweight='bold',
+    #                 transform=legend_ax.transAxes)
+    #     legend_ax.text(0.20, 0.20, 'Accettabile F1=0.5 (- -)  |  Critica F1=0.3 (···)',
+    #                 fontsize=14, ha='left', va='center',
+    #                 transform=legend_ax.transAxes)
 
-        # ═══════════════════════════════════════════════════════════════════
-        # GRAFICO PRINCIPALE (GRANDE E CENTRATO)
-        # ═══════════════════════════════════════════════════════════════════
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # GRAFICO PRINCIPALE (GRANDE E CENTRATO)
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        ax = plt.axes([GRAPH_X, GRAPH_Y, GRAPH_W, GRAPH_H])
+    #     ax = plt.axes([GRAPH_X, GRAPH_Y, GRAPH_W, GRAPH_H])
 
-        colors = ['#3498DB', '#E67E22', '#27AE60', '#E74C3C']
-        markers = ['o', 's', '^', 'D']
-        linestyles = ['-', '--', '-.', ':']
-        labels = ['DDOS attack-LOIC-UDP', 'FTP-BruteForce', 'SQL Injection', 'SSH-Bruteforce']
+    #     colors = ['#3498DB', '#E67E22', '#27AE60', '#E74C3C']
+    #     markers = ['o', 's', '^', 'D']
+    #     linestyles = ['-', '--', '-.', ':']
+    #     labels = ['DDOS attack-LOIC-UDP', 'FTP-BruteForce', 'SQL Injection', 'SSH-Bruteforce']
 
-        data_series = [
-            (labels[0], f1_loic_udp, colors[0], markers[0], linestyles[0]),
-            (labels[1], f1_ftp, colors[1], markers[1], linestyles[1]),
-            (labels[2], f1_sql, colors[2], markers[2], linestyles[2]),
-            (labels[3], f1_ssh, colors[3], markers[3], linestyles[3])
-        ]
+    #     data_series = [
+    #         (labels[0], f1_loic_udp, colors[0], markers[0], linestyles[0]),
+    #         (labels[1], f1_ftp, colors[1], markers[1], linestyles[1]),
+    #         (labels[2], f1_sql, colors[2], markers[2], linestyles[2]),
+    #         (labels[3], f1_ssh, colors[3], markers[3], linestyles[3])
+    #     ]
 
-        # Plot linee con marcatori più grandi
-        for label, data, color, marker, ls in data_series:
-            ax.plot(epochs, data, linestyle=ls, linewidth=4, 
-                    markersize=18, marker=marker, color=color,
-                    markeredgecolor='black', markeredgewidth=2.2,
-                    alpha=0.85, zorder=3)
+    #     # Plot linee con marcatori più grandi
+    #     for label, data, color, marker, ls in data_series:
+    #         ax.plot(epochs, data, linestyle=ls, linewidth=4, 
+    #                 markersize=18, marker=marker, color=color,
+    #                 markeredgecolor='black', markeredgewidth=2.2,
+    #                 alpha=0.85, zorder=3)
 
-        # Soglie con stile professionale
-        ax.axhline(y=0.5, color='#95A5A6', linestyle='--', linewidth=3, 
-                alpha=0.7, zorder=2, label='Soglia accettabile')
-        ax.axhline(y=0.3, color='#E67E22', linestyle=':', linewidth=2.5, 
-                alpha=0.6, zorder=2, label='Soglia critica')
+    #     # Soglie con stile professionale
+    #     ax.axhline(y=0.5, color='#95A5A6', linestyle='--', linewidth=3, 
+    #             alpha=0.7, zorder=2, label='Soglia accettabile')
+    #     ax.axhline(y=0.3, color='#E67E22', linestyle=':', linewidth=2.5, 
+    #             alpha=0.6, zorder=2, label='Soglia critica')
 
-        # Configurazione assi
-        ax.set_xlabel('Epoca di Training', fontsize=15, fontweight='bold', labelpad=10)
-        ax.set_ylabel('F1-score', fontsize=15, fontweight='bold', labelpad=10)
-        ax.set_xlim(0.5, 10.5)
-        ax.set_ylim(-0.02, 0.58)
-        ax.set_xticks(range(1, 11))
-        ax.grid(True, alpha=0.25, linestyle='-', linewidth=0.6, color='#E0E0E0')
-        ax.tick_params(axis='both', labelsize=11, width=1.2, length=5)
+    #     # Configurazione assi
+    #     ax.set_xlabel('Epoca di Training', fontsize=15, fontweight='bold', labelpad=10)
+    #     ax.set_ylabel('F1-score', fontsize=15, fontweight='bold', labelpad=10)
+    #     ax.set_xlim(0.5, 10.5)
+    #     ax.set_ylim(-0.02, 0.58)
+    #     ax.set_xticks(range(1, 11))
+    #     ax.grid(True, alpha=0.25, linestyle='-', linewidth=0.6, color='#E0E0E0')
+    #     ax.tick_params(axis='both', labelsize=11, width=1.2, length=5)
 
-        # Zone problematiche
-        ax.axhspan(-0.02, 0.3, alpha=0.10, color='#C62828', zorder=0)
-        ax.axhspan(0.3, 0.5, alpha=0.08, color='#F57C00', zorder=0)
+    #     # Zone problematiche
+    #     ax.axhspan(-0.02, 0.3, alpha=0.10, color='#C62828', zorder=0)
+    #     ax.axhspan(0.3, 0.5, alpha=0.08, color='#F57C00', zorder=0)
 
-        # Stile assi
-        for spine in ['top', 'right']:
-            ax.spines[spine].set_visible(False)
-        for spine in ['left', 'bottom']:
-            ax.spines[spine].set_linewidth(1.5)
-            ax.spines[spine].set_color('#424242')
-
-
-
-        # ═══════════════════════════════════════════════════════════════════
-        # TABELLA MIGLIORAMENTI DETTAGLIATI (CENTRO DESTRA) - STILE WORD V2
-        # Con leggenda colori integrata e spacing ottimizzato
-        # ═══════════════════════════════════════════════════════════════════
-
-        detail_ax = plt.axes([DETAIL_TABLE_X, DETAIL_TABLE_Y, DETAIL_TABLE_W, DETAIL_TABLE_H])
-        detail_ax.axis('off')
-
-        # Bordo tabella esterno
-        detail_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
-                                        fill=False, edgecolor='#1565C0',
-                                        linewidth=3, transform=detail_ax.transAxes))
-
-        # ═══════════════════════════════════════════════════════════════════
-        # HEADER PRINCIPALE (8% altezza)
-        # ═══════════════════════════════════════════════════════════════════
-
-        detail_ax.add_patch(plt.Rectangle((0, 0.92), 1, 0.08,
-                                        fill=True, facecolor='#E3F2FD',
-                                        edgecolor='#1565C0', linewidth=1.8,
-                                        transform=detail_ax.transAxes))
-
-        detail_ax.text(0.5, 0.96, 'MIGLIORAMENTI DETTAGLIATI',
-                    fontsize=19, fontweight='bold', ha='center', va='center',
-                    transform=detail_ax.transAxes)
-
-        # Linea separatrice sotto header
-        detail_ax.plot([0, 1], [0.92, 0.92], 'k-', linewidth=1.8,
-                    transform=detail_ax.transAxes)
-
-        # ═══════════════════════════════════════════════════════════════════
-        # LEGENDA COLORI (12% altezza) - SUBITO SOTTO IL TITOLO
-        # ═══════════════════════════════════════════════════════════════════
-
-        legend_section_ax = plt.axes([DETAIL_TABLE_X, DETAIL_TABLE_Y + DETAIL_TABLE_H * 0.80, 
-                                    DETAIL_TABLE_W, DETAIL_TABLE_H * 0.12])
-        legend_section_ax.axis('off')
-
-        # Background legenda
-        detail_ax.add_patch(plt.Rectangle((0, 0.80), 1, 0.12,
-                                        fill=True, facecolor='#F5F5F5',
-                                        transform=detail_ax.transAxes))
-
-        # Titolo legenda (compatto)
-        detail_ax.text(0.5, 0.89, 'Legenda Colorimetrica (basata su Δ %)',
-                    fontsize=15, ha='center', va='center',
-                    style='italic', color='#424242',
-                    transform=detail_ax.transAxes)
-
-        # Linea separatrice sottile sopra legenda
-        detail_ax.plot([0.02, 0.98], [0.92, 0.92], '-', color='#BDBDBD', 
-                    linewidth=0.8, transform=detail_ax.transAxes)
+    #     # Stile assi
+    #     for spine in ['top', 'right']:
+    #         ax.spines[spine].set_visible(False)
+    #     for spine in ['left', 'bottom']:
+    #         ax.spines[spine].set_linewidth(1.5)
+    #         ax.spines[spine].set_color('#424242')
 
 
-        legend_items = [
-            ("≥ 400%", "#246528E6", "#C8E6C9"),
-            ("200–400%", "#388E3C", "#E8F5E9"),
-            ("50–200%", "#F9A825", "#FFF9C4"),
-            ("< 50%", "#EF6C00", "#FFE0B2")
-        ]
 
-        x_positions = [0.15, 0.40, 0.65, 0.90]
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # TABELLA MIGLIORAMENTI DETTAGLIATI (CENTRO DESTRA) - STILE WORD V2
+    #     # Con leggenda colori integrata e spacing ottimizzato
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        for (label, edge_color, bg_color), x in zip(legend_items, x_positions):
-            detail_ax.add_patch(
-                plt.Rectangle((x - 0.055, 0.82), 0.11, 0.045,
-                            facecolor=bg_color,
-                            edgecolor=edge_color,
-                            linewidth=1.3,
-                            transform=detail_ax.transAxes)
-            )
+    #     detail_ax = plt.axes([DETAIL_TABLE_X, DETAIL_TABLE_Y, DETAIL_TABLE_W, DETAIL_TABLE_H])
+    #     detail_ax.axis('off')
 
-            detail_ax.text(x, 0.85, label,
-                        fontsize=11, ha='center', va='top',
-                        color='black', fontweight='bold',
-                        family='monospace',
-                        transform=detail_ax.transAxes)
+    #     # Bordo tabella esterno
+    #     detail_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
+    #                                     fill=False, edgecolor='#1565C0',
+    #                                     linewidth=3, transform=detail_ax.transAxes))
 
-        # Linea separatrice sotto legenda
-        detail_ax.plot([0, 1], [0.80, 0.80], 'k-', linewidth=1.5,
-                    transform=detail_ax.transAxes)
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # HEADER PRINCIPALE (8% altezza)
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        # ═══════════════════════════════════════════════════════════════════
-        # HEADER COLONNE (6% altezza)
-        # ═══════════════════════════════════════════════════════════════════
+    #     detail_ax.add_patch(plt.Rectangle((0, 0.92), 1, 0.08,
+    #                                     fill=True, facecolor='#E3F2FD',
+    #                                     edgecolor='#1565C0', linewidth=1.8,
+    #                                     transform=detail_ax.transAxes))
 
-        col_headers = [
-            (0.28, 'Classe'),
-            (0.54, 'Epoch 1'),
-            (0.70, 'Epoch 10'),
-            (0.88, 'Δ %')
-        ]
+    #     detail_ax.text(0.5, 0.96, 'MIGLIORAMENTI DETTAGLIATI',
+    #                 fontsize=19, fontweight='bold', ha='center', va='center',
+    #                 transform=detail_ax.transAxes)
 
-        for x, header in col_headers:
-            detail_ax.text(x, 0.77, header, fontsize=16, fontweight='bold',
-                        ha='center', va='center', transform=detail_ax.transAxes)
+    #     # Linea separatrice sotto header
+    #     detail_ax.plot([0, 1], [0.92, 0.92], 'k-', linewidth=1.8,
+    #                 transform=detail_ax.transAxes)
 
-        # Linea separatrice header colonne
-        detail_ax.plot([0, 1], [0.74, 0.74], 'k-', linewidth=1.8,
-                    transform=detail_ax.transAxes)
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # LEGENDA COLORI (12% altezza) - SUBITO SOTTO IL TITOLO
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        # ═══════════════════════════════════════════════════════════════════
-        # RIGHE DATI (74% spazio disponibile, ben distribuito)
-        # ═══════════════════════════════════════════════════════════════════
+    #     legend_section_ax = plt.axes([DETAIL_TABLE_X, DETAIL_TABLE_Y + DETAIL_TABLE_H * 0.80, 
+    #                                 DETAIL_TABLE_W, DETAIL_TABLE_H * 0.12])
+    #     legend_section_ax.axis('off')
 
-        # Ordina per percentuale decrescente
-        improvements_with_idx = []
-        for i, (label, data, color) in enumerate(improvements_data):
-            delta = data[-1] - data[0]
-            if data[0] > 0:
-                perc = (delta / data[0]) * 100
-            else:
-                perc = 999  # SSH che parte da 0
-            improvements_with_idx.append((label, data, color, perc, delta))
+    #     # Background legenda
+    #     detail_ax.add_patch(plt.Rectangle((0, 0.80), 1, 0.12,
+    #                                     fill=True, facecolor='#F5F5F5',
+    #                                     transform=detail_ax.transAxes))
 
-        improvements_with_idx.sort(key=lambda x: x[3], reverse=True)
+    #     # Titolo legenda (compatto)
+    #     detail_ax.text(0.5, 0.89, 'Legenda Colorimetrica (basata su Δ %)',
+    #                 fontsize=15, ha='center', va='center',
+    #                 style='italic', color='#424242',
+    #                 transform=detail_ax.transAxes)
 
-        # Calcolo spacing ottimizzato (4 righe in 74% spazio = 0.74/4 = 0.185 per riga)
-        n_rows = len(improvements_with_idx)
-        available_space = 0.74  # Da 0.74 a 0.00
-        row_height = available_space / n_rows if n_rows > 0 else 0.185
+    #     # Linea separatrice sottile sopra legenda
+    #     detail_ax.plot([0.02, 0.98], [0.92, 0.92], '-', color='#BDBDBD', 
+    #                 linewidth=0.8, transform=detail_ax.transAxes)
 
-        y_start = 0.72
 
-        for rank, (label, data, color, perc, delta) in enumerate(improvements_with_idx):
-            y_pos = y_start - (rank * row_height)
+    #     legend_items = [
+    #         ("≥ 400%", "#246528E6", "#C8E6C9"),
+    #         ("200–400%", "#388E3C", "#E8F5E9"),
+    #         ("50–200%", "#F9A825", "#FFF9C4"),
+    #         ("< 50%", "#EF6C00", "#FFE0B2")
+    #     ]
+
+    #     x_positions = [0.15, 0.40, 0.65, 0.90]
+
+    #     for (label, edge_color, bg_color), x in zip(legend_items, x_positions):
+    #         detail_ax.add_patch(
+    #             plt.Rectangle((x - 0.055, 0.82), 0.11, 0.045,
+    #                         facecolor=bg_color,
+    #                         edgecolor=edge_color,
+    #                         linewidth=1.3,
+    #                         transform=detail_ax.transAxes)
+    #         )
+
+    #         detail_ax.text(x, 0.85, label,
+    #                     fontsize=11, ha='center', va='top',
+    #                     color='black', fontweight='bold',
+    #                     family='monospace',
+    #                     transform=detail_ax.transAxes)
+
+    #     # Linea separatrice sotto legenda
+    #     detail_ax.plot([0, 1], [0.80, 0.80], 'k-', linewidth=1.5,
+    #                 transform=detail_ax.transAxes)
+
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # HEADER COLONNE (6% altezza)
+    #     # ═══════════════════════════════════════════════════════════════════
+
+    #     col_headers = [
+    #         (0.28, 'Classe'),
+    #         (0.54, 'Epoch 1'),
+    #         (0.70, 'Epoch 10'),
+    #         (0.88, 'Δ %')
+    #     ]
+
+    #     for x, header in col_headers:
+    #         detail_ax.text(x, 0.77, header, fontsize=16, fontweight='bold',
+    #                     ha='center', va='center', transform=detail_ax.transAxes)
+
+    #     # Linea separatrice header colonne
+    #     detail_ax.plot([0, 1], [0.74, 0.74], 'k-', linewidth=1.8,
+    #                 transform=detail_ax.transAxes)
+
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # RIGHE DATI (74% spazio disponibile, ben distribuito)
+    #     # ═══════════════════════════════════════════════════════════════════
+
+    #     # Ordina per percentuale decrescente
+    #     improvements_with_idx = []
+    #     for i, (label, data, color) in enumerate(improvements_data):
+    #         delta = data[-1] - data[0]
+    #         if data[0] > 0:
+    #             perc = (delta / data[0]) * 100
+    #         else:
+    #             perc = 999  # SSH che parte da 0
+    #         improvements_with_idx.append((label, data, color, perc, delta))
+
+    #     improvements_with_idx.sort(key=lambda x: x[3], reverse=True)
+
+    #     # Calcolo spacing ottimizzato (4 righe in 74% spazio = 0.74/4 = 0.185 per riga)
+    #     n_rows = len(improvements_with_idx)
+    #     available_space = 0.74  # Da 0.74 a 0.00
+    #     row_height = available_space / n_rows if n_rows > 0 else 0.185
+
+    #     y_start = 0.72
+
+    #     for rank, (label, data, color, perc, delta) in enumerate(improvements_with_idx):
+    #         y_pos = y_start - (rank * row_height)
             
-            # Colore background basato su Δ%
-            if perc >= 400:
-                bg_color = '#C8E6C9'
-                edge_color = '#2E7D32'
-                edge_width = 1.8
-            elif perc >= 200:
-                bg_color = '#E8F5E9'
-                edge_color = '#4CAF50'
-                edge_width = 1.5
-            elif perc >= 50:
-                bg_color = '#FFF9C4'
-                edge_color = '#F9A825'
-                edge_width = 1.5
-            else:
-                bg_color = '#FFE0B2'
-                edge_color = '#EF6C00'
-                edge_width = 1.8
+    #         # Colore background basato su Δ%
+    #         if perc >= 400:
+    #             bg_color = '#C8E6C9'
+    #             edge_color = '#2E7D32'
+    #             edge_width = 1.8
+    #         elif perc >= 200:
+    #             bg_color = '#E8F5E9'
+    #             edge_color = '#4CAF50'
+    #             edge_width = 1.5
+    #         elif perc >= 50:
+    #             bg_color = '#FFF9C4'
+    #             edge_color = '#F9A825'
+    #             edge_width = 1.5
+    #         else:
+    #             bg_color = '#FFE0B2'
+    #             edge_color = '#EF6C00'
+    #             edge_width = 1.8
             
             
-            detail_ax.add_patch(plt.Rectangle((0, y_pos - row_height),
-                                        1, row_height,
-                                        fill=True, facecolor=bg_color,
-                                        edgecolor=edge_color, linewidth=1.2,
-                                        transform=detail_ax.transAxes))
+    #         detail_ax.add_patch(plt.Rectangle((0, y_pos - row_height),
+    #                                     1, row_height,
+    #                                     fill=True, facecolor=bg_color,
+    #                                     edgecolor=edge_color, linewidth=1.2,
+    #                                     transform=detail_ax.transAxes))
 
-            # Testo centrato verticalmente nella riga
-            text_y = y_pos - row_height / 2
+    #         # Testo centrato verticalmente nella riga
+    #         text_y = y_pos - row_height / 2
             
-            detail_ax.text(0.28, text_y, label[:18],
-                        fontsize=14.5, ha='center', va='center',
-                        fontweight='bold',
-                        transform=detail_ax.transAxes)
+    #         detail_ax.text(0.28, text_y, label[:18],
+    #                     fontsize=14.5, ha='center', va='center',
+    #                     fontweight='bold',
+    #                     transform=detail_ax.transAxes)
             
-            detail_ax.text(0.54, text_y, f'{data[0]:.4f}',
-                        fontsize=14.5, ha='center', va='center',
-                        family='monospace',
-                        transform=detail_ax.transAxes)
+    #         detail_ax.text(0.54, text_y, f'{data[0]:.4f}',
+    #                     fontsize=14.5, ha='center', va='center',
+    #                     family='monospace',
+    #                     transform=detail_ax.transAxes)
             
-            detail_ax.text(0.70, text_y, f'{data[-1]:.4f}',
-                        fontsize=14.5, ha='center', va='center',
-                        family='monospace', fontweight='bold',
-                        transform=detail_ax.transAxes)
+    #         detail_ax.text(0.70, text_y, f'{data[-1]:.4f}',
+    #                     fontsize=14.5, ha='center', va='center',
+    #                     family='monospace', fontweight='bold',
+    #                     transform=detail_ax.transAxes)
             
-            if perc == 999:
-                perc_text = '(da 0)'
-            else:
-                perc_text = f'+{perc:.1f}%'
+    #         if perc == 999:
+    #             perc_text = '(da 0)'
+    #         else:
+    #             perc_text = f'+{perc:.1f}%'
             
-            detail_ax.text(0.88, text_y, perc_text,
-                        fontsize=14.5, ha='center', va='center',
-                        family='monospace', fontweight='bold',
-                        color=edge_color,
-                        transform=detail_ax.transAxes)
+    #         detail_ax.text(0.88, text_y, perc_text,
+    #                     fontsize=14.5, ha='center', va='center',
+    #                     family='monospace', fontweight='bold',
+    #                     color=edge_color,
+    #                     transform=detail_ax.transAxes)
 
-        # Fine sezione tabella miglioramenti
-        # ═══════════════════════════════════════════════════════════════════
-        # TABELLA ALERT (SOTTO DESTRA) - STILE WORD
-        # ═══════════════════════════════════════════════════════════════════
+    #     # Fine sezione tabella miglioramenti
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # TABELLA ALERT (SOTTO DESTRA) - STILE WORD
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        alert_ax = plt.axes([ALERT_TABLE_X, ALERT_TABLE_Y - 0.03, ALERT_TABLE_W, ALERT_TABLE_H + 0.04])
-        alert_ax.axis('off')
+    #     alert_ax = plt.axes([ALERT_TABLE_X, ALERT_TABLE_Y - 0.03, ALERT_TABLE_W, ALERT_TABLE_H + 0.04])
+    #     alert_ax.axis('off')
 
-        # Bordo tabella
-        alert_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
-                                        fill=False, edgecolor='#C62828',
-                                        linewidth=3, transform=alert_ax.transAxes))
+    #     # Bordo tabella
+    #     alert_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
+    #                                     fill=False, edgecolor='#C62828',
+    #                                     linewidth=3, transform=alert_ax.transAxes))
 
-        # Header tabella
-        alert_ax.add_patch(plt.Rectangle((0, 0.75), 1, 0.25,
-                                        fill=True, facecolor='#FFEBEE',
-                                        edgecolor='#C62828', linewidth=1.8,
-                                        transform=alert_ax.transAxes))
+    #     # Header tabella
+    #     alert_ax.add_patch(plt.Rectangle((0, 0.75), 1, 0.25,
+    #                                     fill=True, facecolor='#FFEBEE',
+    #                                     edgecolor='#C62828', linewidth=1.8,
+    #                                     transform=alert_ax.transAxes))
 
-        alert_ax.text(0.5, 0.875, 'PERFORMANCE RESIDUA',
-                    fontsize=18, fontweight='bold', ha='center', va='center',
-                    color='#C62828',
-                    transform=alert_ax.transAxes)
+    #     alert_ax.text(0.5, 0.875, 'PERFORMANCE RESIDUA',
+    #                 fontsize=18, fontweight='bold', ha='center', va='center',
+    #                 color='#C62828',
+    #                 transform=alert_ax.transAxes)
 
-        # Linea separatrice
-        alert_ax.plot([0, 1], [0.75, 0.75], 'k-', linewidth=1.8,
-                    transform=alert_ax.transAxes)
+    #     # Linea separatrice
+    #     alert_ax.plot([0, 1], [0.75, 0.75], 'k-', linewidth=1.8,
+    #                 transform=alert_ax.transAxes)
 
-        # Contenuto alert
-        classes_below_threshold = sum(1 for _, data, _, _, _ in improvements_with_idx if data[-1] < 0.5)
+    #     # Contenuto alert
+    #     classes_below_threshold = sum(1 for _, data, _, _, _ in improvements_with_idx if data[-1] < 0.5)
 
-        alert_text = (
-            f"Classi sotto F1=0.5: {classes_below_threshold}/4\n\n"
-            f"Miglior F1 raggiunto: {max([d[-1] for _, d, _, _, _ in improvements_with_idx]):.4f}\n"
-            f"(DDOS-LOIC-UDP)\n\n"
-            f"Tutte le classi restano sotto\n"
-            f"la soglia accettabile"
-        )
+    #     alert_text = (
+    #         f"Classi sotto F1=0.5: {classes_below_threshold}/4\n\n"
+    #         f"Miglior F1 raggiunto: {max([d[-1] for _, d, _, _, _ in improvements_with_idx]):.4f}\n"
+    #         f"(DDOS-LOIC-UDP)\n\n"
+    #         f"Tutte le classi restano sotto\n"
+    #         f"la soglia accettabile"
+    #     )
 
-        alert_ax.text(0.5, 0.35, alert_text,
-                    fontsize=14.5, ha='center', va='center',
-                    family='monospace',fontweight='bold',
-                    transform=alert_ax.transAxes)
+    #     alert_ax.text(0.5, 0.35, alert_text,
+    #                 fontsize=14.5, ha='center', va='center',
+    #                 family='monospace',fontweight='bold',
+    #                 transform=alert_ax.transAxes)
 
-        # ═══════════════════════════════════════════════════════════════════
-        # SALVATAGGIO
-        # ═══════════════════════════════════════════════════════════════════
+    #     # ═══════════════════════════════════════════════════════════════════
+    #     # SALVATAGGIO
+    #     # ═══════════════════════════════════════════════════════════════════
 
-        plt.savefig(output_dir/'v0_f1_evolution.png',
-                dpi=400, bbox_inches='tight', facecolor='white')
+    #     plt.savefig(output_dir/'v0_f1_evolution.png',
+    #             dpi=400, bbox_inches='tight', facecolor='white')
 
 
         
-        print("✅ Grafico 3 salvato: f1_evolution.png")
-    else:
-        print("\n⚠️ Dati evolution non disponibili - grafico 3 saltato")
+    #     print("✅ Grafico 3 salvato: f1_evolution.png")
+    # else:
+    #     print("\n⚠️ Dati evolution non disponibili - grafico 3 saltato")
     
-    print("\n" + "=" * 70)
-    print("✅ ANALISI COMPLETATA!")
-    print(f"📁 File salvati in: {output_dir}")
-    print("=" * 70)
+    # print("\n" + "=" * 70)
+    # print("✅ ANALISI COMPLETATA!")
+    # print(f"📁 File salvati in: {output_dir}")
+    # print("=" * 70)
+
+
+def find_latest_epoch_report(folder_path, pattern='classification_report_epoch_*.txt'):
+    """
+    Trova il file classification_report con l'epoca più alta in una cartella.
+    
+    Args:
+        folder_path: Path della cartella
+        pattern: Pattern per matching file
+    
+    Returns:
+        tuple: (file_path, epoch_number) oppure (None, None) se non trovato
+    """
+    folder = Path(folder_path)
+    if not folder.exists():
+        return None, None
+    
+    files = list(folder.glob(pattern))
+    if not files:
+        return None, None
+    
+    # Estrai numero epoca da ogni file
+    epoch_data = []
+    for f in files:
+        match = re.search(r'epoch_(\d+)', f.name)
+        if match:
+            epoch_num = int(match.group(1))
+            epoch_data.append((epoch_num, f))
+    
+    if not epoch_data:
+        return None, None
+    
+    # Ritorna il file con epoca più alta
+    epoch_data.sort(key=lambda x: x[0], reverse=True)
+    return epoch_data[0][1], epoch_data[0][0]
+
+
+def compare_f1_two_models(current_model_path, previous_model_path, output_dir, version_title='', previous_version_title=''):
+    """
+    Genera un grafico comparativo F1-score tra due versioni di modello (corrente vs precedente).
+    
+    Args:
+        current_model_path: Path alla cartella del modello CORRENTE
+        previous_model_path: Path alla cartella del modello PRECEDENTE
+        output_dir: Path directory output
+    
+    Returns:
+        dict con dati confronto se successo, None se errore
+    """
+    
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # ═══════════════════════════════════════════════════════════════
+    # STEP 1: Estrai dati modello CORRENTE
+    # ═══════════════════════════════════════════════════════════════
+    
+    current_report_path, current_epoch = find_latest_epoch_report(
+        Path(current_model_path) / 'metrics_per_epoch' / 'classification_report'
+    )
+    
+    if current_report_path is None:
+        print(f"❌ ERRORE: Nessun classification_report trovato in {current_model_path}")
+        return None
+    
+    try:
+        current_data = parse_classification_report(current_report_path, extract_epoch=True)
+        print(f"✅ Modello CORRENTE caricato: {current_report_path.name} (Epoch {current_epoch})")
+    except Exception as e:
+        print(f"❌ ERRORE caricamento modello corrente: {e}")
+        return None
+    
+    # ═══════════════════════════════════════════════════════════════
+    # STEP 2: Estrai dati modello PRECEDENTE (se fornito)
+    # ═══════════════════════════════════════════════════════════════
+    
+    previous_data = None
+    previous_epoch = None
+    has_comparison = False
+    
+    if previous_model_path:
+        previous_report_path, previous_epoch = find_latest_epoch_report(
+            Path(previous_model_path) / 'metrics_per_epoch' /'classification_report'
+        )
+        
+        if previous_report_path is None:
+            print(f"⚠️ AVVISO: Nessun classification_report trovato in {previous_model_path}")
+            print("   → Genererò solo il grafico per il modello corrente")
+        else:
+            try:
+                previous_data = parse_classification_report(previous_report_path, extract_epoch=True)
+                has_comparison = True
+                print(f"✅ Modello PRECEDENTE caricato: {previous_report_path.name} (Epoch {previous_epoch})")
+            except Exception as e:
+                print(f"⚠️ AVVISO: Errore caricamento modello precedente: {e}")
+                print("   → Continuerò con solo il modello corrente")
+    
+    # ═══════════════════════════════════════════════════════════════
+    # STEP 3: Prepara dati per il grafico
+    # ═══════════════════════════════════════════════════════════════
+    
+    class_names = current_data['class_names']
+    current_f1 = current_data['f1_scores']
+    
+    # Verifica coerenza classi
+    if has_comparison:
+        if current_data['class_names'] != previous_data['class_names']:
+            print("⚠️ AVVISO: Classi diverse tra i due modelli")
+            print("   → Procedo con le classi del modello corrente")
+            previous_data = None
+            has_comparison = False
+        else:
+            previous_f1 = previous_data['f1_scores']
+    
+    # ═══════════════════════════════════════════════════════════════
+    # STEP 4: Generazione abbreviazioni
+    # ═══════════════════════════════════════════════════════════════
+    
+    class_abbr = generate_class_abbreviations(class_names)
+    
+    # ═══════════════════════════════════════════════════════════════
+    # STEP 5: Configurazione figura professionale
+    # ═══════════════════════════════════════════════════════════════
+    
+    fig = plt.figure(figsize=(32, 16))
+    fig.patch.set_facecolor('white')
+    
+    # ═══════════════════════════════════════════════════════════════
+    # TITOLO E SOTTOTITOLO
+    # ═══════════════════════════════════════════════════════════════
+    
+    if has_comparison:
+        # Determina i nomi delle versioni
+        current_name = f'{version_title}' if version_title else 'Corrente'
+        previous_name = f'{previous_version_title}' if previous_version_title else 'Precedente'
+        
+        title_text = f'F1-Score per Classe - Confronto Versioni Modello'
+        subtitle_text = f'Modello {previous_name} (Epoch {previous_epoch}) vs Modello {current_name} (Epoch {current_epoch})'
+        model_label = current_name
+    else:
+        title_text = f'F1-Score per Classe'
+        subtitle_text = f'Modello Corrente (Epoch {current_epoch})'
+        model_label = 'Modello'
+    
+    fig.text(0.43, 0.965, title_text,
+            fontsize=26, fontweight='bold', ha='center', family='sans-serif')
+    fig.text(0.43, 0.935, subtitle_text,
+            fontsize=17, ha='center', style='italic', color='#555555')
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # ✅ TABELLA LEGENDA - TOP LEFT (MIGLIORATA)
+    # ═══════════════════════════════════════════════════════════════════
+
+    legend_ax = plt.axes([0.10, 0.81, 0.13, 0.11])  # ← Aumentata height da 0.10 a 0.13
+    legend_ax.axis('off')
+
+    # Bordo tabella
+    legend_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
+                                    fill=False, edgecolor='#424242',
+                                    linewidth=2.5, transform=legend_ax.transAxes))
+
+    # Header (proporzionato meglio: 22% invece di 25%)
+    header_height = 0.22
+    legend_ax.add_patch(plt.Rectangle((0, 1-header_height), 1, header_height,
+                                    fill=True, facecolor='#E3F2FD',
+                                    edgecolor='#424242', linewidth=1.5,
+                                    transform=legend_ax.transAxes))
+
+    legend_ax.text(0.5, 1-header_height/2, 'LEGENDA COLORI',
+                fontsize=16, fontweight='bold', ha='center', va='center',
+                transform=legend_ax.transAxes)
+
+    # Linea separatrice
+    legend_ax.plot([0, 1], [1-header_height, 1-header_height], 'k-', linewidth=1.5,
+                transform=legend_ax.transAxes)
+
+    # Righe legenda con spaziatura dinamica
+    legend_items = [
+        ('■', '#FF9D5C', f'Modello {previous_name}'),
+        ('■', '#5DADE2', f'Modello {current_name}'),
+        ('═', '#FF9D5C', 'Media Raggiunta'),
+        ('═', '#5DADE2', 'Media Raggiunta'),
+    ]
+
+    # Calcolo spaziatura verticale proporzionale
+    content_height = 1 - header_height  # Spazio disponibile sotto header
+    n_items = len(legend_items)
+    item_spacing = content_height / (n_items + 1)  # +1 per margini equilibrati
+
+    for idx, (symbol, color, label) in enumerate(legend_items):
+        # Y position: parte dal basso, sale proporzionalmente
+        y_pos = content_height - (idx + 1) * item_spacing
+        
+        legend_ax.text(0.10, y_pos, symbol, 
+                    fontsize=15, ha='center', va='center',
+                    transform=legend_ax.transAxes, color=color, fontweight='bold')
+        legend_ax.text(0.30, y_pos, label,
+                    fontsize=14, ha='left', va='center',
+                    transform=legend_ax.transAxes, fontweight='bold', color='#212121')
+
+
+    # ═══════════════════════════════════════════════════════════════════
+    # ✅ TABELLA STATISTICHE - TOP RIGHT (MIGLIORATA)
+    # ═══════════════════════════════════════════════════════════════════
+
+    stats_ax = plt.axes([0.505, 0.81, 0.24, 0.11])  # ← Aumentata height da 0.09 a 0.12
+    stats_ax.axis('off')
+
+    # Bordo tabella
+    stats_ax.add_patch(plt.Rectangle((0, 0), 1, 1,
+                                    fill=False, edgecolor='#1976D2',
+                                    linewidth=2.5, transform=stats_ax.transAxes))
+
+    # Header (proporzionato: 23%)
+    header_height_stats = 0.23
+    stats_ax.add_patch(plt.Rectangle((0, 1-header_height_stats), 1, header_height_stats,
+                                    fill=True, facecolor='#E3F2FD',
+                                    edgecolor='#1976D2', linewidth=1.5,
+                                    transform=stats_ax.transAxes))
+
+    stats_ax.text(0.5, 1-header_height_stats/2, 'CONFRONTO VERSIONI',
+                fontsize=16, fontweight='bold', ha='center', va='center',
+                transform=stats_ax.transAxes)
+
+    # Linea separatrice
+    stats_ax.plot([0, 1], [1-header_height_stats, 1-header_height_stats], 'k-', 
+                linewidth=1.5, transform=stats_ax.transAxes)
+
+    # Calcoli statistiche
+    if has_comparison:
+        mean_current = np.mean(current_f1)
+        mean_previous = np.mean(previous_f1)
+        improvement = mean_current - mean_previous
+        improvement_pct = (improvement / (mean_previous + 1e-10)) * 100
+        better_classes = np.sum(current_f1 > previous_f1)
+        worse_classes = np.sum(current_f1 < previous_f1)
+        
+        # Righe statistiche
+        stats_items = [
+            (f'Δ Media:', f'{improvement:+.4f}', '#27AE60' if improvement > 0 else '#E74C3C'),
+            (f'Δ %:', f'{improvement_pct:+.1f}%', '#27AE60' if improvement_pct > 0 else '#E74C3C'),
+            (f'↑ Classi:', f'{better_classes}/{len(class_names)}', '#27AE60'),
+            (f'↓ Classi:', f'{worse_classes}/{len(class_names)}', '#E74C3C'),
+        ]
+        
+        # Calcolo spaziatura dinamica
+        content_height_stats = 1 - header_height_stats
+        n_stats = len(stats_items)
+        stats_spacing = content_height_stats / (n_stats + 1)
+        
+        for idx, (label, value, color) in enumerate(stats_items):
+            y_pos = content_height_stats - (idx + 1) * stats_spacing
+            
+            stats_ax.text(0.15, y_pos, label,
+                        fontsize=14, ha='left', va='center',
+                        transform=stats_ax.transAxes, fontweight='bold', color='#212121')
+            stats_ax.text(0.85, y_pos, value,
+                        fontsize=14, ha='right', va='center',
+                        transform=stats_ax.transAxes, fontweight='bold', color=color, 
+                        family='monospace')
+
+    # ═══════════════════════════════════════════════════════════════
+    # GRAFICO PRINCIPALE - DOPPIO ASSE X PER BARRE GEMELLE
+    # ═══════════════════════════════════════════════════════════════
+    
+    ax = plt.axes([0.10, 0.08, 0.65, 0.71])
+    
+    n_classes = len(class_names)
+    
+    if has_comparison:
+        # Larghezza barre
+        bar_width = 0.41
+        x_pos = np.arange(n_classes)
+        
+        # Offset per posizionamento barre gemelle
+        x_prev = x_pos - bar_width / 2
+        x_curr = x_pos + bar_width / 2
+        
+        # Colori
+        color_previous = '#FF9D5C'  # Arancione
+        color_current = '#5DADE2'   # Celeste
+        
+        # Crea barre
+        bars_prev = ax.bar(x_prev, previous_f1, bar_width, 
+                          label=f'Modello {previous_name}',
+                          color=color_previous, alpha=0.88,
+                          edgecolor='#D97E35', linewidth=1.8,
+                          zorder=3)
+        
+        bars_curr = ax.bar(x_curr, current_f1, bar_width,
+                          label=f'Modello {current_name}',
+                          color=color_current, alpha=0.88,
+                          edgecolor='#1F618D', linewidth=1.8,
+                          zorder=3)
+        
+        # Annotazioni SOPRA le barre con valori e delta
+        for i, (prev_f1, curr_f1) in enumerate(zip(previous_f1, current_f1)):
+            delta = curr_f1 - prev_f1
+            delta_pct = (delta / (prev_f1 + 1e-10)) * 100
+            
+            # Valore precedente (sopra barra arancione) - INGRANDITO
+            ax.text(x_prev[i], prev_f1 + 0.025, f'{prev_f1:.3f}',
+                   ha='center', va='bottom', fontsize=13, fontweight='bold',
+                   color='#D97E35')
+            
+            # Valore corrente (sopra barra celeste) - INGRANDITO
+            ax.text(x_curr[i], curr_f1 + 0.025, f'{curr_f1:.3f}',
+                   ha='center', va='bottom', fontsize=13, fontweight='bold',
+                   color='#1F618D')
+            
+            # Delta tra le barre (freccia o simbolo)
+            mid_x = (x_prev[i] + x_curr[i]) / 2
+            max_y = max(prev_f1, curr_f1)
+            
+            if delta > 0.01:
+                arrow_symbol = '↑'
+                arrow_color = '#27AE60'  # Verde
+            elif delta < -0.01:
+                arrow_symbol = '↓'
+                arrow_color = '#E74C3C'  # Rosso
+            else:
+                arrow_symbol = '→'
+                arrow_color = '#7F8C8D'  # Grigio
+            
+            # Delta tra le barre - INGRANDITO
+            ax.text(mid_x, max_y + 0.060, f'{arrow_symbol} {delta:+.3f}',
+                   ha='center', va='bottom', fontsize=12, fontweight='bold',
+                   color=arrow_color, style='italic')
+            
+            # ax.text(mid_x, max_y + 0.045, f'{arrow_symbol} {delta:+.3f}',
+            #        ha='center', va='bottom', fontsize=8.5, fontweight='bold',
+            #        color=arrow_color, style='italic')
+    
+    else:
+        # Solo modello corrente - barre singole più larghe
+        bar_width = 0.56
+        x_pos = np.arange(n_classes)
+        
+        color_current = '#42A5F5'  # Blu
+        
+        bars_curr = ax.bar(x_pos, current_f1, bar_width,
+                          label=f'Modello {version_title}',
+                          color=color_current, alpha=0.85,
+                          edgecolor='#1565C0', linewidth=1.8,
+                          zorder=3)
+        
+        # Annotazioni valore sopra barre
+        for i, curr_f1 in enumerate(current_f1):
+            ax.text(i, curr_f1 + 0.017, f'{curr_f1:.3f}',
+                   ha='center', va='bottom', fontsize=11, fontweight='bold',
+                   color='#1565C0')
+    
+    # ═══════════════════════════════════════════════════════════════
+    # LINEE DI SOGLIA ORIZZONTALI
+    # ═══════════════════════════════════════════════════════════════
+    
+    ax.axhline(y=0.80, color='#27AE60', linestyle='--', linewidth=2.5, 
+              alpha=0.7, zorder=1, label='Target threshold: 0.80')
+    ax.axhline(y=0.50, color='#F39C12', linestyle='--', linewidth=2.5, 
+              alpha=0.7, zorder=1, label='Warning threshold: 0.50')
+    
+    # Media del modello corrente - LINEA BLU CONTINUA SPESSA
+    mean_current = np.mean(current_f1)
+    ax.axhline(y=mean_current, color='#1F618D', linestyle='-', linewidth=2.9, 
+              alpha=0.9, zorder=2, label=f'Media {current_name}: {mean_current:.3f}')
+    
+    # Media del modello precedente - LINEA ARANCIONE CONTINUA SPESSA
+    if has_comparison:
+        mean_previous = np.mean(previous_f1)
+        ax.axhline(y=mean_previous, color='#D97E35', linestyle='-', linewidth=2.9, 
+                  alpha=0.9, zorder=2, label=f'Media {previous_name}: {mean_previous:.3f}')
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ZONE COLORATE DI BACKGROUND
+    # ═══════════════════════════════════════════════════════════════
+    
+    ax.axhspan(-0.02, 0.50, alpha=0.08, color='#E74C3C', zorder=0, label='Critica')
+    ax.axhspan(0.50, 0.80, alpha=0.06, color='#F39C12', zorder=0, label='Problematica')
+    ax.axhspan(0.80, 1.05, alpha=0.05, color='#27AE60', zorder=0, label='Accettabile')
+    
+    # ═══════════════════════════════════════════════════════════════
+    # CONFIGURAZIONE ASSI E LABELS
+    # ═══════════════════════════════════════════════════════════════
+    
+    if has_comparison:
+        ax.set_xticks(np.arange(n_classes))
+    else:
+        ax.set_xticks(np.arange(n_classes))
+    
+    ax.set_xticklabels(class_abbr, rotation=35, ha='right', fontsize=18, fontweight='bold')
+    ax.set_ylabel('F1-Score', fontsize=16, fontweight='bold', labelpad=12)
+    ax.set_ylim([0, 1.12])
+    
+    # Grid professionale
+    ax.grid(True, alpha=0.2, linestyle='-', linewidth=0.6, color='#E0E0E0', 
+           axis='y', zorder=0)
+    ax.set_axisbelow(True)
+    
+    # Stile assi
+    for spine in ['top', 'right']:
+        ax.spines[spine].set_visible(False)
+    for spine in ['left', 'bottom']:
+        ax.spines[spine].set_linewidth(1.5)
+        ax.spines[spine].set_color('#424242')
+    
+    ax.tick_params(axis='both', labelsize=11, width=1.2, length=5)
+    
+    
+    # ═══════════════════════════════════════════════════════════════
+    # SALVATAGGIO FIGURA
+    # ═══════════════════════════════════════════════════════════════
+    
+    if has_comparison:
+        if version_title:
+            output_filename = f'{version_title}_f1_comparison_models.png'
+        else:
+            output_filename = 'f1_comparison_models.png'
+    else:
+        if version_title:
+            output_filename = f'{version_title}_f1_per_class.png'
+        else:
+            output_filename = 'f1_per_class.png'
+    
+    output_path = output_dir / output_filename
+    fig.savefig(output_path, dpi=400, bbox_inches='tight', facecolor='white')
+    plt.close(fig)
+    
+    print(f"✅ Grafico F1 salvato: {output_path}")
+    
+    return {
+        'current_f1': current_f1,
+        'previous_f1': previous_f1 if has_comparison else None,
+        'class_names': class_names,
+        'current_epoch': current_epoch,
+        'previous_epoch': previous_epoch if has_comparison else None,
+        'has_comparison': has_comparison
+    }
+
+
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2507,11 +3054,18 @@ Esempi d'uso:
     parser.add_argument('--pattern', '-p', default='*.txt',
                         help='Pattern matching file nella evolution-folder (default: *.txt)')
     
-    # parser.add_argument('--output', '-o', default='./analysis_results',
-    #                     help='Directory output (default: ./analysis_results)')
     parser.add_argument('--output', '-o', 
-                    default='./analysis_results',
-                    help='Directory output (default: ./analysis_results)')
+                default='./analysis_results',
+                help='Directory output (default: ./analysis_results)')
+
+    parser.add_argument('--previous-model', default=None,
+                    help='Percorso cartella modello PRECEDENTE per confronto F1')
+
+    parser.add_argument('--version-title', default='',
+                    help='Titolo versione da aggiungere ai nomi file (es: V0_no_weight)')
+    
+    parser.add_argument('--previous-version-title', default='',
+                help='Titolo versione PRECEDENTE (es: V0_no_weight)')
     
     parser.add_argument('--export-formats', nargs='+', 
                         default=['csv', 'excel', 'markdown'],
@@ -2553,7 +3107,9 @@ Esempi d'uso:
             agg_data, summaries, subdirs = generate_evolution_analysis(
                 args.evolution_folder,
                 evolution_output,
-                pattern=args.pattern
+                pattern=args.pattern,
+                previous_model_path = args.previous_model,
+                version_title = args.version_title
             )
             
             export_evolution_tables(agg_data, subdirs,
@@ -2583,9 +3139,35 @@ Esempi d'uso:
             
             # Genera i 3 grafici classici
             print(f"📊 Generando grafici per Epoch {final_epoch}...")
-            generate_analysis(final_classification_data, None, single_report_output)
+            generate_analysis(final_classification_data, None, single_report_output, version_title=args.version_title)
             
             print(f"✅ Grafici singola epoca salvati in: {single_report_output}")
+            
+            # ═══════════════════════════════════════════════════════════════
+            # ✅ GENERA GRAFICO COMPARATIVO F1 (se modello precedente disponibile)
+            # ═══════════════════════════════════════════════════════════════
+
+            if args.previous_model:
+                print(f"\n📊 GENERAZIONE GRAFICO COMPARATIVO F1-SCORE")
+                try:
+                    # current_model_path: sali 2 livelli da evolution_folder
+                    # evolution_folder = .../modello/metrics_per_epoch/classification_report
+                    # → parent = .../modello/metrics_per_epoch
+                    # → parent.parent = .../modello ✅
+                    current_model_path = Path(args.evolution_folder).parent.parent
+                    
+                    compare_f1_two_models(
+                        current_model_path=current_model_path,
+                        previous_model_path=args.previous_model,
+                        output_dir=single_report_output,
+                        version_title=args.version_title,
+                        previous_version_title=args.previous_version_title
+                    )
+                    print(f"✅ Grafico comparativo F1 generato con successo!")
+                except Exception as e:
+                    print(f"⚠️ Errore nella generazione grafico comparativo F1: {e}")
+            else:
+                print(f"\n⚠️ Nessun modello precedente fornito (--previous-model): grafico comparativo saltato")
 
         
         # ═══════════════════════════════════════════════════════════

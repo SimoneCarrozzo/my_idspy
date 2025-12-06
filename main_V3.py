@@ -31,7 +31,7 @@ from src.idspy.steps.builders.dataloader import BuildDataLoader
 from src.idspy.steps.builders.dataset import BuildDataset
 from src.idspy.steps.transforms.adjust import DropNulls
 from src.idspy.steps.transforms.map import FrequencyMap, LabelMap
-from src.idspy.steps.transforms.scale import StandardScale
+from src.idspy.steps.transforms.scale import StandardScale2
 from src.idspy.steps.transforms.split import (
     AssignSplitPartitions,
     StratifiedSplit,
@@ -65,6 +65,91 @@ Flusso completo:
 5. Training con Early Stopping
 6. Visualizzazione delle metriche
 """
+
+
+""" E' IMPORTANTE PRECISARE CHE PRIMA DI ARRIVARE A QUESTA VERSIONE, CHE CHIAMEREMO V2_SND_TRY_ES E
+    CHE MI HA FATTO OTTENERE:
+        a) accuracy: 99,5
+        b) f1_macro: 80.4
+        c) f1_micro: 99.5
+        d) f1_weighted: 99.4
+        e) precision: 95.9
+        f) recall: 78
+        g) EPOCHE RUNNATE: BEN 32/50
+    
+    IL SETUP IMPLEMENTATO NELLA VERSIONE PRECEDENTE V2_FIRST_TRY_ES, CHE MI HA FATTO OTTENERE:
+        a) accuracy: 99,5
+        b) f1_macro: 80.0
+        c) f1_micro: 99.5
+        d) f1_weighted: 99.4
+        e) precision: 93.7
+        f) recall: 77.4
+        g) EPOCHE RUNNATE: BEN 7/50  
+    
+    PREVEDEVA:
+    
+    BuildDataLoader(
+                in_scope="train",
+                out_scope="train",
+                batch_size=256, # MODIFICATO RISP V1_TRY_STATO_ARTE
+                num_workers=2,  # MODIFICATO RISP V1_TRY_STATO_ARTE
+                pin_memory=True, #AGGIUNTO
+                shuffle=True,
+                collate_fn=default_collate,
+            )
+
+    model = TabularClassifier(
+        num_features=len(schema.numerical),
+        cat_cardinalities=[20] * len(schema.categorical),
+        num_classes=15,
+        hidden_dims=[128, 64, 32],  # MODIFICATO RISP V1_TRY_STATO_ARTE
+        dropout=0.15,               # MODIFICATO RISP V1_TRY_STATO_ARTE
+    ).to(device)
+    
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.00025)    # MODIFICATO RISP V1_TRY_STATO_ARTE
+
+    # #aggiunto
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min', 
+        factor=0.5, 
+        patience=2,      # MODIFICATO RISP V1_TRY_STATO_ARTE: ridotto da 3 a 2
+        min_lr=1e-6,
+        ####verbose=False
+    )
+    
+    # 🔧 SCEGLI LA STRATEGIA DI SMOOTHING
+    smoothing_strategy = "midway_root"  # Opzioni: "sqrt" (default) o "fourth_root" (più conservativo)  --> AGGIUNTO
+            
+    # Applica smoothing
+    elif smoothing_strategy == "midway_root":
+        logger.info("\n✅ STRATEGIA: MIDWAY-Smoothed Class Weighting (radice pari a 0.40)")
+        class_weights_smoothed = np.power(class_weights_balanced, 0.40)
+    else:
+        raise ValueError(f"Strategia sconosciuta: {smoothing_strategy}")
+        
+     # 🆕 Crea lo step di training con early stopping
+    training_step = TrainWithEarlyStopping(
+        epoch_pipeline=epoch_pipeline,
+        num_epochs=50,              # Numero massimo di epoche
+        patience=5,                 # Ferma se nessun miglioramento per 3 epoche
+        min_delta=0.0005,            # Miglioramento minimo significativo #update di punto 3) da min_delta=0.001 a min_delta=0.0005
+        checkpoint_dir=f"{log_dir}/checkpoints_ES",
+        save_best_only=True,        # Salva solo il miglior modello
+        verbose=True,
+        in_scope="train",      
+        out_scope="train",     
+        name="train_with_early_stopping",
+        scheduler=scheduler
+    ) 
+    
+"""
+
+#AGGIUNTO 21/11:
+import os
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ['PYTORCH_CUDA_ALLOC_MAX_SPLIT_SIZE_MB'] = '128'  # Limita frammentazione
 
 def main():
     # ═══════════════════════════════════════════════════════════════════
@@ -145,7 +230,7 @@ def main():
     # LabelMap(), #trasforma le etichette di stringa in numeri interi
     fit_aware_pipeline = FitAwareObservablePipeline(
         steps=[
-            StandardScale(),           
+            StandardScale2(),           
             FrequencyMap(max_levels=20),  
             LabelMap(),                
         ],
@@ -159,15 +244,15 @@ def main():
     preprocessing_pipeline = ObservablePipeline(
         steps=[
             LoadData(
-                path_in="c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/dataset_v2/cic_2018_v2.csv",
+                path_in="c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/dataset_v2/cic_2018_v2.csv",
                 schema=schema,
-                nrows=10000000
+                nrows=100000000
             ),
             DropNulls(),
             StratifiedSplit(class_column=schema.target),
             fit_aware_pipeline,
             SaveData(
-                file_path="c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/processati",
+                file_path="c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/dataset_processati",
                 file_name="cic_2018_v2",
                 fmt="parquet",
             ),
@@ -182,7 +267,7 @@ def main():
     setup_pipeline = ObservablePipeline(
         steps=[
             LoadData(
-                path_in="c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/processati/cic_2018_v2.parquet"
+                path_in="c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/dataset_processati/cic_2018_v2.parquet"
             ),
             AssignSplitPartitions(),  # Assegna train/test splits
             AssignSplitTarget(in_scope="data", out_scope="train"),
@@ -191,8 +276,9 @@ def main():
             BuildDataLoader(
                 in_scope="train",
                 out_scope="train",
-                batch_size=1024,#512,
-                num_workers=6,
+                batch_size=512,#1024,
+                num_workers=0,  # ← Windows non gestisce bene multiprocessing
+                pin_memory=False, 
                 shuffle=True,
                 collate_fn=default_collate,
             ),
@@ -208,72 +294,51 @@ def main():
         bus=bus,
         name="setup_pipeline",
     )
-
-    # ═══════════════════════════════════════════════════════════════════
-    # 6️⃣ PIPELINE EPOCA - Operazioni per ogni singola epoca
-    # ═══════════════════════════════════════════════════════════════════
-    epoch_pipeline = ObservablePipeline(
-        steps=[
-            TrainOneEpoch(),  
-            ValidateOneEpoch(
-                in_scope="test", 
-                out_scope="test", 
-                save_outputs=True
-            ),  # Validazione su test set
-            MakePredictions(pred_fn=lambda x: torch.argmax(x, dim=1)),  # Converte output in predizioni
-            ClassificationMetrics("c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/Salvataggi/classification_exp_report"),  # Calcola e salva metriche
-        ],
-        bus=bus,
-        name="epoch_pipeline",
-    )
     
     # ═══════════════════════════════════════════════════════════════════
-    # 7️⃣ CONFIGURAZIONE MODELLO E LOSS
+    # 6️⃣ CONFIGURAZIONE MODELLO E LOSS
     # ═══════════════════════════════════════════════════════════════════
     device = torch.device("cuda")  
     model = TabularClassifier(
         num_features=len(schema.numerical),
         cat_cardinalities=[20] * len(schema.categorical),
         num_classes=15,
-        hidden_dims=[128, 64],
-        dropout=0.1,
+        hidden_dims=[256, 128, 64],
+        dropout=0.2,
     ).to(device)
+
     
     # Creo loss INIZIALE (senza class weighting)
-    loss = ClassificationLoss().to(device)
-    # 1) con introduzione di class_weighted_smoothed optimizer=torch.optim.Adam(model.parameters(), lr=0.001)
-    # 2) con cambio parametri prima + scheduler poi, e optimizer=torch.optim.Adam(model.parameters(), lr=0.0001)
-    # 3) ora che cambio di nuovo per migliorare metriche, optimizer=torch.optim.Adam(model.parameters(), lr=0.00015)
-    # 4) cambio solo num_epoch e optimizer per migliorare metriche, optimizer=torch.optim.Adam(model.parameters(), lr=0.00012)  
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.00012)
-    
+    loss_fn = ClassificationLoss().to(device)
+         
+    # MODIFICA DEL 22/11
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0003)  # ← CAMBIATO da 0.00025 a 0.0003
+
     # ═══════════════════════════════════════════════════════════════════
-    # 8️⃣ CREAZIONE DELLO STATE INIZIALE
+    # 7️⃣ CREAZIONE DELLO STATE INIZIALE
     # ═══════════════════════════════════════════════════════════════════
     # Lo State è il "contenitore globale" che passa tra tutti gli step
     state = State(
         {
             "device": device,
             "model": model,
-            "loss": loss,
+            "loss": loss_fn,
             "optimizer": optimizer,
             "seed": 42,
         }
     )
-    
-    #aggiunto
+        
+    #MODIFICA DEL 22/11
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 
         mode='min', 
-        factor=0.5, 
-        patience=3,
+        factor=0.7,              # ← CAMBIATO da 0.5 a 0.7 (riduzione più graduale)
+        patience=4,              # ← CAMBIATO da 2 a 4 (più paziente)
         min_lr=1e-6,
-        #verbose=False
     )
-    #state.set("scheduler", scheduler, object)
     
     # ═══════════════════════════════════════════════════════════════════
-    # 9️⃣ ESECUZIONE PREPROCESSING
+    # 8️⃣ ESECUZIONE PREPROCESSING
     # ═══════════════════════════════════════════════════════════════════
     logger.info("\n" + "="*70)
     logger.info("⚙️ FASE 1: PREPROCESSING DATI")
@@ -282,7 +347,7 @@ def main():
     preprocessing_pipeline.run(state)
     
     # ═══════════════════════════════════════════════════════════════════
-    # 🔟 COSTRUZIONE DATASET E DATALOADER
+    # 9️⃣ COSTRUZIONE DATASET E DATALOADER
     # ═══════════════════════════════════════════════════════════════════
     logger.info("\n" + "="*70)
     logger.info("🔧 FASE 2: SETUP DATASET E DATALOADER")
@@ -290,8 +355,68 @@ def main():
     
     setup_pipeline.run(state)
     
+    # Get the actual class names from LabelMap mapping
+    logger.info("\n" + "="*70)
+    logger.info("📋 ESTRAZIONE NOMI CLASSI")
+    logger.info("="*70)
+    
+    # Leggi i nomi delle classi direttamente dal CSV raw
+    csv_path = "c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/dataset_v2/cic_2018_v2.csv"
+    # try:
+    #     sample_data = pd.read_csv(csv_path, nrows=10000000) #1000
+    #     original_classes = sorted(sample_data["Attack"].unique())
+    #     class_names = [str(c) for c in original_classes]
+    #     logger.info(f"✅ Class names from raw data: {class_names}")
+    # except Exception as e:
+    #     logger.warning(f"⚠️ Impossibile leggere da CSV: {e}")
+    #     logger.info("   Utilizzo fallback: auto-generated class names")
+    #     train_targets = state.get("train.targets", np.ndarray)
+    #     num_classes = len(np.unique(train_targets))
+    #     class_names = [f"Attack_Type_{i}" for i in range(num_classes)]
+    #     logger.info(f"✅ Class names (fallback): {class_names}")
+    
+    # logger.info(f"📝 Nomi classi finali: {class_names}\n")
+    try:
+        # 🆕 Leggi SOLO la colonna "Attack" usando memory-efficient approach
+        # Non caricare tutto il CSV in memoria, solo la colonna target
+        attack_classes = pd.read_csv(
+            csv_path,
+            usecols=["Attack"],  # ← Leggi SOLO questa colonna
+            dtype={"Attack": "category"}  # ← Usa dtype 'category' per risparmiare memoria
+        )
+        
+        # Estrai le classi uniche e ordinate
+        original_classes = sorted(attack_classes["Attack"].unique())
+        class_names = [str(c) for c in original_classes]
+        
+        logger.info(f"✅ Class names from CSV (Attack column only): {class_names}")
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Impossibile leggere da CSV: {e}")
+        logger.info("   Fallback: estrai dai train.targets già caricati")
+        
+        try:
+            # Fallback: estrai dai targets caricati dallo State
+            train_targets = state.get("train.targets", np.ndarray)
+            unique_classes = np.unique(train_targets)
+            num_classes = len(unique_classes)
+            
+            # Crea nomi standard
+            class_names = [f"Attack_Type_{i}" for i in range(num_classes)]
+            
+            logger.info(f"✅ Class names (from train.targets): {class_names}")
+            
+        except Exception as e2:
+            logger.error(f"❌ Impossibile estrarre class names: {e2}")
+            num_classes = 15  # Dal tuo modello
+            class_names = [f"Class_{i}" for i in range(num_classes)]
+            logger.warning(f"⚠️ Fallback finale: {class_names}")
+
+    logger.info(f"📝 Nomi classi finali: {class_names}\n")
+    
+    
     # ═══════════════════════════════════════════════════════════════════
-    # 1️⃣1️⃣ CORREZIONE LABEL SHIFT (bug fix LabelMap)
+    # 🔟 CORREZIONE LABEL SHIFT (bug fix LabelMap)
     # ═══════════════════════════════════════════════════════════════════
     # LabelMap fa codes+1, quindi le label sono [1-15] invece di [0-14]
     # BuildDataset corregge il dataset, ma NON corregge train.targets/test.targets
@@ -314,6 +439,46 @@ def main():
         logger.info(f"✅ Train targets - Dopo shift: min={train_targets.min()}, max={train_targets.max()}")
         logger.info(f"✅ Test targets - Dopo shift: min={test_targets.min()}, max={test_targets.max()}")
     
+    
+    # ═══════════════════════════════════════════════════════════════════
+    #  1️⃣1️⃣ PIPELINE EPOCA - Operazioni per ogni singola epoca
+    # ═══════════════════════════════════════════════════════════════════
+    
+    import os
+    log_dir = "C:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs/v3"    
+    os.makedirs(log_dir, exist_ok=True)
+    
+    epoch_pipeline = ObservablePipeline(
+        steps=[
+            TrainOneEpoch(
+                log_dir=log_dir,           # AGGIUNTO
+                log_prefix="train",        # AGGIUNTO
+                save_history=True,         # Opzionale
+                # checkpoint_dir=f"{log_dir}/checkpoints", #AGGIUNTO
+            ),  
+            ValidateOneEpoch(
+                log_dir=log_dir,           # AGGIUNTO
+                log_prefix="val",          # AGGIUNTO 
+                in_scope="test",           # ← mantieni "test" se usi test set
+                out_scope="test",
+                save_outputs=True,
+            ),
+            MakePredictions(pred_fn=lambda x: torch.argmax(x, dim=1)),  # Converte output in predizioni
+            ClassificationMetrics(
+                log_dir=log_dir,                   # CAMBIO path
+                log_prefix="test",                 # AGGIUNTO
+                class_names=class_names,           # AGGIUNTO
+                in_scope="test",
+                out_scope="test",
+                save_confusion_matrix=True,  # ✅ Salva metriche
+                save_classification_report=True,
+                save_f1_per_class_plot = True,
+            ),  # Calcola e salva metriche
+        ],
+        bus=bus,
+        name="epoch_pipeline",
+    )
+    
     # ═══════════════════════════════════════════════════════════════════
     # 1️⃣2️⃣ CALCOLO CLASS WEIGHTS (gestione dataset sbilanciato)
     # ═══════════════════════════════════════════════════════════════════
@@ -331,29 +496,36 @@ def main():
         percentage = (count / total_samples) * 100
         logger.info(f"   Classe {cls:2d}: {count:10,} samples ({percentage:5.2f}%)")
     
+    # 🔧 SCEGLI LA STRATEGIA DI SMOOTHING
+    smoothing_strategy = "sqrt"  # Opzioni: "sqrt" (default) o "fourth_root" (più conservativo)
+    
     # Calcola i pesi bilanciati automaticamente
     class_weights_balanced = compute_class_weight(
         class_weight='balanced',
         classes=unique_classes,
         y=train_targets
     )
-    
-    # Smoothing: attenua pesi troppo aggressivi con radice quadrata
-    #1) prima del cambiamento dei parametri (lr, optimizer, batch_size, num_epochs) 
-    # --> class_weights_smoothed = np.sqrt(class_weights_balanced)
-    #2) poi cambiamento parametri prima (lr, optimizer, batch_size, num_epochs 
-    #   aggiunto patience e min_delta) --> class_weights_smoothed = np.power(class_weights_balanced, 0.25)
-    #2.1) poi aggiungendo anche scheduler ma mantenendo i parametri di 2 
-    # --> class_weights_smoothed = np.power(class_weights_balanced, 0.25)
-    #3) si ritorna a class_weights_smoothed = np.sqrt(class_weights_balanced) cambiando i parametri
-    class_weights_smoothed = np.sqrt(class_weights_balanced)
-    
+        
+    # Applica smoothing
+    if smoothing_strategy == "sqrt":
+        logger.info("\n✅ STRATEGIA: Smoothed Class Weighting (radice quadrata)")
+        class_weights_smoothed = np.sqrt(class_weights_balanced)
+    elif smoothing_strategy == "4_root":
+        logger.info("\n✅ STRATEGIA: Ultra-Smoothed Class Weighting (radice quarta)")
+        class_weights_smoothed = np.power(class_weights_balanced, 0.25)
+        #ATTENZIONE è NUOVO QUELLO CHE SEGUE:
+    elif smoothing_strategy == "midway_root":
+        logger.info("\n✅ STRATEGIA: MIDWAY-Smoothed Class Weighting (radice pari a 0.40)")
+        class_weights_smoothed = np.power(class_weights_balanced, 0.40)
+    else:
+        raise ValueError(f"Strategia sconosciuta: {smoothing_strategy}")
+
     # Stampa confronto pesi
     logger.info("\n⚖️ Confronto pesi delle classi:")
     for cls in unique_classes:
         logger.info(
-            f"   Classe {cls}: balanced={class_weights_balanced[cls]:.2f}, "
-            f"smoothed={class_weights_smoothed[cls]:.2f}"
+            f"   Classe {cls:2d}: balanced={class_weights_balanced[cls]:.4f}, "
+            f"smoothed={class_weights_smoothed[cls]:.4f}"
         )
     
     # Converti in tensor PyTorch
@@ -361,9 +533,9 @@ def main():
     logger.info(f"\n✅ Class weights tensor shape: {class_weights_tensor.shape}")
     
     # Aggiorna la loss con i pesi
-    loss_weighted = ClassificationLoss(class_weight=class_weights_tensor).to(device)
-    state.set("loss", loss_weighted, ClassificationLoss)
-    logger.info("🎯 Loss function aggiornata con class weighting!")
+    loss_fn = ClassificationLoss(class_weight=class_weights_tensor).to(device)
+    state.set("loss", loss_fn, ClassificationLoss)
+    logger.info(f"🎯 Loss function configurata: {smoothing_strategy}\n")
     
     # ═══════════════════════════════════════════════════════════════════
     # 1️⃣3️⃣ TRAINING CON EARLY STOPPING 
@@ -371,15 +543,15 @@ def main():
     logger.info("\n" + "="*70)
     logger.info("🚀 FASE 4: TRAINING CON EARLY STOPPING")
     logger.info("="*70)
-    
-    # 🆕 Crea lo step di training con early stopping
+        
+    #MODIFICA DEL 22/11
     training_step = TrainWithEarlyStopping(
         epoch_pipeline=epoch_pipeline,
-        num_epochs=40,              # Numero massimo di epoche
-        patience=5,                 # Ferma se nessun miglioramento per 3 epoche
-        min_delta=0.0005,            # Miglioramento minimo significativo #update di punto 3) da min_delta=0.001 a min_delta=0.0005
-        checkpoint_dir="c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/Salvataggi/checkpoints",
-        save_best_only=True,        # Salva solo il miglior modello
+        num_epochs=50,              # OK
+        patience=8,                 # ← CAMBIATO da 5 a 8 (più paziente)
+        min_delta=0.0002,           # ← CAMBIATO da 0.0005 a 0.0002 (più tollerante)
+        checkpoint_dir=f"{log_dir}/checkpoints_ES",
+        save_best_only=True,
         verbose=True,
         in_scope="train",      
         out_scope="train",     
@@ -399,8 +571,8 @@ def main():
     
     # 🆕 Crea lo step per la visualizzazione
     plot_step = PlotMetrics(
-        metrics_dir="c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/Salvataggi/classification_exp_report",
-        output_dir="c:/Users/simon/OneDrive/Documenti/TESI_UNI/DataSets/Salvataggi/plots",
+        metrics_dir=log_dir,
+        output_dir=f"{log_dir}/plots",
         metrics_to_plot=["accuracy", "precision", "recall", "f1_micro", "f1_macro", "f1_weighted"],
         figsize=(12, 8),
         dpi=300,                    
@@ -413,18 +585,16 @@ def main():
     # 🆕 Genera i grafici
     plot_step.run(state)
     
+    logger.info("\n" + "="*70)
+    logger.info("✅ GRAFICI SALVATI")
+    logger.info("="*70)
+    
     # ═══════════════════════════════════════════════════════════════════
     # 1️⃣5️⃣ FINE!
     # ═══════════════════════════════════════════════════════════════════
     logger.info("\n" + "="*70)
     logger.info("🎉 PIPELINE COMPLETA ESEGUITA CON SUCCESSO!")
     logger.info("="*70)
-    logger.info("\n📁 Output prodotti:")
-    logger.info("   • Dataset processati: .../processati/")
-    logger.info("   • Checkpoint modelli: .../checkpoints/")
-    logger.info("   • Report metriche: .../classification_exp_report/")
-    logger.info("   • Grafici delle metriche: .../plots/")
-    logger.info("\n✅ Tutto pronto per l'analisi!")
 
    
 if __name__ == "__main__":

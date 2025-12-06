@@ -949,37 +949,76 @@ class PlotMetrics(Step):
         """
         Crea un grafico con BARRE SEPARATE per ogni metrica.
         Una figura con sottografici (subplot) - uno per metrica.
-        Ideale come figura supplementare in appendice.
+        Scaling dinamico basato sul numero di epoche per mantenere leggibilità.
+        
+        Scaling rules:
+        - num_epochs ≤ 12: Layout standard (16x10)
+        - 12 < num_epochs ≤ 22: Layout medio (19x12)
+        - 22 < num_epochs ≤ 30: Layout large (22x14)
+        - num_epochs > 30: Layout extra-large (26x16)
         """
         # Determina il numero di epoche
         num_epochs = df['epoch'].nunique()
-        
         num_metrics = len(self.metrics_to_plot)
         
         # Calcola numero di righe e colonne per i subplot
         ncols = 2
-        nrows = (num_metrics + ncols - 1) // ncols  # Arrotonda per eccesso
+        nrows = (num_metrics + ncols - 1) // ncols
         
-        # SCALING DINAMICO: aumenta dimensioni se molte epoche
-        base_width = 16
-        base_height_per_row = 5
-        
-        if num_epochs > 12:
-            # Aumenta larghezza: +0.8 pollici ogni 5 epoche oltre 12
-            extra_width = ((num_epochs - 12) / 5) * 0.8
-            fig_width = base_width + extra_width
+        # ═══════════════════════════════════════════════════════════════
+        # SCALING DINAMICO A 4 LIVELLI
+        # ═══════════════════════════════════════════════════════════════
+        if num_epochs <= 12:
+            fig_width = 16
+            fig_height = 5 * nrows
+            bar_width = 0.65
+            value_fontsize = 9
+            tick_fontsize = 10
+            xtick_rotation = 0
+            xtick_step = 1
             
-            # Aumenta altezza leggermente per mantenere proporzioni
-            extra_height = ((num_epochs - 12) / 10) * 0.5
-            fig_height = (base_height_per_row + extra_height) * nrows
-        else:
-            fig_width = base_width
-            fig_height = base_height_per_row * nrows
+        elif num_epochs <= 22:
+            fig_width = 19
+            fig_height = 6 * nrows
+            bar_width = 0.55
+            value_fontsize = 8
+            tick_fontsize = 9
+            xtick_rotation = 0
+            xtick_step = 1
+            
+        elif num_epochs <= 30:
+            fig_width = 22
+            fig_height = 7 * nrows
+            bar_width = 0.50
+            value_fontsize = 7
+            tick_fontsize = 8
+            xtick_rotation = 45
+            xtick_step = 2
+
+        elif num_epochs <= 40:
+            fig_width = 26
+            fig_height = 8 * nrows
+            bar_width = 0.45
+            value_fontsize = 6
+            tick_fontsize = 8
+            xtick_rotation = 45
+            xtick_step = 2
+            
+        else:  # per training > 40 epoche
+            fig_width = 30
+            fig_height = 9 * nrows
+            bar_width = 0.40
+            value_fontsize = 6
+            tick_fontsize = 7
+            xtick_rotation = 45
+            xtick_step = 3  # ← Mostra ogni 3 epoche
         
+        # ═══════════════════════════════════════════════════════════════
+        # CREAZIONE FIGURA
+        # ═══════════════════════════════════════════════════════════════
         fig, axes = plt.subplots(nrows=nrows, ncols=ncols, 
-                             figsize=(fig_width, fig_height))
+                                figsize=(fig_width, fig_height))
         
-        # Appiattisci axes se è un array 2D
         if isinstance(axes, np.ndarray):
             axes = axes.flatten()
         else:
@@ -994,114 +1033,252 @@ class PlotMetrics(Step):
             'f1_weighted': '#D4AC0D',
         }
         
-        # 🆕 Font size adattivo basato sul numero di epoche
-        if num_epochs > 15:
-            value_fontsize = 6
-            tick_fontsize = 8
-        elif num_epochs > 12:
-            value_fontsize = 7
-            tick_fontsize = 9
-        else:
-            value_fontsize = 9
-            tick_fontsize = 10
-        
-        # Crea un subplot per ogni metrica
+        # ═══════════════════════════════════════════════════════════════
+        # PLOT DI OGNI METRICA
+        # ═══════════════════════════════════════════════════════════════
         for idx, metric_name in enumerate(self.metrics_to_plot):
             ax = axes[idx]
             metric_data = df[df['metric'] == metric_name].sort_values('epoch')
             
             if metric_data.empty:
                 ax.text(0.5, 0.5, f'Nessun dato per {metric_name}',
-                       ha='center', va='center', transform=ax.transAxes)
-                ax.set_title(f'{metric_name.upper()} - ❌ Dati non disponibili')
+                    ha='center', va='center', transform=ax.transAxes,
+                    fontsize=12, color='red')
+                ax.set_title(f'{metric_name.upper()} - ❌ Dati non disponibili',
+                            fontweight='bold', fontsize=12)
                 continue
             
             epochs = metric_data['epoch'].values
             values = metric_data['value'].values
             color = colors.get(metric_name, '#000000')
             
-            # 🆕 Bar width adattivo
-            if num_epochs > 12:
-                bar_width = 0.5  # Barre più sottili ma ancora visibili
-            else:
-                bar_width = 0.6
-            
-            # Barre separate
+            # Plot delle barre
             bars = ax.bar(epochs, values, color=color, alpha=0.8, 
-                     edgecolor='black', linewidth=1.2, width=bar_width)
+                        edgecolor='black', linewidth=1.2, width=bar_width)
             
-            # Linea del massimo
+            # Calcola statistiche
             max_value = values.max()
+            max_epoch = epochs[values.argmax()]
             
-            # Aggiungi valori sopra le barre
-            for bar, value, epoch in zip(bars, values, epochs):
-                height = bar.get_height()
-                x_pos = bar.get_x() + bar.get_width()/2.
+            # ═══════════════════════════════════════════════════════════
+            # ANNOTAZIONI VALORI: LOGICA MIGLIORATA
+            # ═══════════════════════════════════════════════════════════
+            # 1️⃣ Calcola dinamicamente l'offset in base al range dei dati
+            data_range = max_value - values.min()
+            offset_above_max = max(0.02, 0.03 * data_range)  # Minimo 2%, proporzionale al range
+            y_text_position = max_value + offset_above_max
 
-                # Se barra è molto alta (> 0.95), metti testo sotto
-                if height > 0.90:
-                    y_pos = height - 0.05  # Dentro la barra
-                    color_text = 'white'
-                    va_align = 'top'
-                else:
-                    y_pos = max_value + 0.02  # Sopra la barra
+            # 2️⃣ Font size dinamico più grande per epoche numerose
+            if num_epochs > 25:
+                rotated_fontsize = max(7, value_fontsize + 1)  # +1 rispetto al base
+            else:
+                rotated_fontsize = value_fontsize
+
+            for bar, value in zip(bars, values):
+                height = bar.get_height()
+                x_pos = bar.get_x() + bar.get_width() / 2.
+                
+                # ═══════════════════════════════════════════════════════════════
+                # 🎯 LOGICA A 3 CASI (MIGLIORATA)
+                # ═══════════════════════════════════════════════════════════════
+                
+                if num_epochs > 25:
+                    # CASO 1: Molte epoche → TUTTO ruotato sopra la linea rossa
+                    y_pos = y_text_position
                     color_text = 'black'
                     va_align = 'bottom'
+                    ha_align = 'left'  # ← CAMBIATO: allineamento a sinistra per rotazione
+                    rotation_angle = 45
+                    fontsize_used = rotated_fontsize
+                    
+                elif height < 0.90:
+                    # CASO 2: Barra alta (≥90%) → dentro la barra
+                    y_pos = height - 0.03
+                    color_text = 'white'
+                    va_align = 'top'
+                    ha_align = 'center'
+                    rotation_angle = 0
+                    fontsize_used = value_fontsize
+                    
+                else:
+                    # CASO 3: Poche epoche, barra normale → sopra linea rossa, NO rotazione
+                    y_pos = y_text_position
+                    color_text = 'black'
+                    va_align = 'bottom'
+                    ha_align = 'center'
+                    rotation_angle = 0
+                    fontsize_used = value_fontsize
                 
                 ax.text(x_pos, y_pos, f'{value:.3f}',
-                   ha='center', va=va_align, 
-                   fontsize=value_fontsize, fontweight='bold',
-                   color=color_text)
-                # ax.text(bar.get_x() + bar.get_width()/2., y_pos,
-                #    f'{value:.3f}',
-                #    ha='center', va=va_align, 
-                #    fontsize=9, fontweight='bold',
-                #    color=color_text)
+                    ha=ha_align, va=va_align, 
+                    fontsize=fontsize_used, fontweight='bold',
+                    color=color_text, rotation=rotation_angle)
+            """ # Offset fisso sopra la linea rossa del massimo
+            offset_above_max = 0.015  # ~1.5% sopra il massimo
+            y_text_position = max_value + offset_above_max
+            
+            for bar, value in zip(bars, values):
+                height = bar.get_height()
+                x_pos = bar.get_x() + bar.get_width() / 2.
                 
+                if num_epochs > 25 and height < 0.90:
+                    # 📊 PRIMO CASO: epoche > 25 E barra < 90%
+                    # → Testo SOPRA la linea rossa, ruotato a 45°
+                    y_pos = y_text_position
+                    color_text = 'black'
+                    va_align = 'bottom'
+                    ha_align = 'center'
+                    rotation_angle = 45
+                    
+                elif height < 0.90:
+                    # 📊 SECONDO CASO: barre "normali" (non rientra nel primo caso)
+                    # → Testo SOPRA la linea rossa, NON ruotato
+                    y_pos = y_text_position
+                    color_text = 'black'
+                    va_align = 'bottom'
+                    ha_align = 'center'
+                    rotation_angle = 0
+                    
+                else:
+                    # 📊 TERZO CASO: barra ≥ 90%
+                    # → Testo DENTRO la barra, NON ruotato (classico)
+                    y_pos = height - 0.03
+                    color_text = 'white'
+                    va_align = 'top'
+                    ha_align = 'center'
+                    rotation_angle = 0
+                
+                ax.text(x_pos, y_pos, f'{value:.3f}',
+                    ha=ha_align, va=va_align, 
+                    fontsize=value_fontsize, fontweight='bold',
+                    color=color_text, rotation=rotation_angle) """
             
-            # Linea del massimo
+            # ═══════════════════════════════════════════════════════════
+            # LINEA DEL MASSIMO
+            # ═══════════════════════════════════════════════════════════
             ax.axhline(y=max_value, color='red', linestyle='--', 
-                      linewidth=1.5, alpha=0.6)
+                    linewidth=1.5, alpha=0.6, zorder=1)
             
-            # Info in alto a destra, FUORI dal plot
-            info_text = f"Max: {max_value:.4f}"
-            ax.text(0.98, 1.03, info_text,
+            # ═══════════════════════════════════════════════════════════
+            # INFO BOX SEMPLIFICATO (solo Max + Epoca)
+            # ═══════════════════════════════════════════════════════════
+            info_text = f"Max: {max_value:.4f} (epoca {max_epoch})"
+            
+            ax.text(0.98, 1.04, info_text,
                     transform=ax.transAxes,
                     fontsize=10, fontweight='bold',
                     ha='right', va='bottom',
                     bbox=dict(boxstyle='round,pad=0.5', 
                             facecolor='yellow', 
-                            alpha=0.8,
-                            edgecolor='black'))
-            
-            # Configurazione subplot
+                            alpha=0.85,
+                            edgecolor='black',
+                            linewidth=1.5))
+            # ═══════════════════════════════════════════════════════════════════
+            # 🛡️ PROTEZIONE OVERFLOW: Calcola margine necessario per testi ruotati
+            # ═══════════════════════════════════════════════════════════════════
+            has_rotated_text = (num_epochs > 25)
+
+            if has_rotated_text:
+                # Calcola altezza massima del testo ruotato (approssimazione geometrica)
+                # Un testo di lunghezza L ruotato di 45° occupa ~L*sin(45°) in verticale
+                text_length_estimate = 0.05  # Circa 5% dell'altezza del plot
+                text_height_rotated = text_length_estimate * np.sin(np.radians(45))
+                
+                # Margine dinamico: più ampio se i valori sono vicini al massimo
+                if (values.max() - values.min()) < 0.1:
+                    margin_factor = 0.15  # 15% extra se valori molto simili
+                else:
+                    margin_factor = 0.12  # 12% standard
+                    
+                y_lim_max = max(1.05, max_value + margin_factor + text_height_rotated)
+            else:
+                # Margine standard per testi non ruotati
+                margin_factor = 0.08
+                y_lim_max = max(1.05, max_value + margin_factor)
+
+            ax.set_ylim([0, y_lim_max])
+            # ═══════════════════════════════════════════════════════════
+            # CONFIGURAZIONE ASSI
+            # ═══════════════════════════════════════════════════════════
             ax.set_xlabel('Epoca', fontweight='bold', fontsize=11)
             ax.set_ylabel('Valore', fontweight='bold', fontsize=11)
+            ax.set_title(f'{metric_name.upper()}', fontweight='bold', 
+                        fontsize=13, pad=20)
             
-            ax.set_title(f'{metric_name.upper()}', fontweight='bold', fontsize=12, pad=8)
-            ax.grid(True, alpha=0.3, axis='y', linestyle='--')
-            ax.set_ylim([0, 1.05])
-            # ax.legend(loc='upper right', fontsize=9)
-
-            # 🆕 X-axis ottimizzato per molte epoche
-            if num_epochs > 12:
-                # Mostra solo epoche pari/dispari alternate
-                ax.set_xticks(epochs[::2])
-                ax.set_xticklabels(epochs[::2], fontsize=tick_fontsize)
+            ax.grid(True, alpha=0.3, axis='y', linestyle='--', linewidth=0.8)
+            
+            """ # 🆕 Y-lim dinamico: deve essere abbastanza alto per i testi sopra max
+            y_lim_max = max(1.05, max_value + 0.08)  # Almeno 8% sopra il max
+            ax.set_ylim([0, y_lim_max]) """
+            has_rotated_text = (num_epochs > 25 and 
+                               any(val < 0.90 for val in values))
+            
+            if has_rotated_text:
+                # Margine maggiore per i testi ruotati
+                margin_factor = 0.12  # 12% di spazio extra
             else:
-                ax.tick_params(axis='x', labelsize=tick_fontsize)
+                # Margine standard
+                margin_factor = 0.08  # 8% di spazio extra
+            
+            y_lim_max = max(1.05, max_value + margin_factor)
+            ax.set_ylim([0, y_lim_max])
+            
+            # ═══════════════════════════════════════════════════════════
+            # X-AXIS OTTIMIZZATO
+            # ═══════════════════════════════════════════════════════════
+            """ if xtick_step > 1:
+                displayed_epochs = epochs[::xtick_step]
+                ax.set_xticks(displayed_epochs)
+                ax.set_xticklabels(displayed_epochs, fontsize=tick_fontsize,
+                                rotation=xtick_rotation, 
+                                ha='right' if xtick_rotation > 0 else 'center')
+            else:
+                ax.set_xticks(epochs)
+                ax.set_xticklabels(epochs, fontsize=tick_fontsize,
+                                rotation=xtick_rotation, 
+                                ha='right' if xtick_rotation > 0 else 'center')
             
             ax.tick_params(axis='y', labelsize=tick_fontsize)
             
-        # Nascondi i subplot vuoti
+            # Minor ticks per migliorare leggibilità
+            ax.minorticks_on()
+            ax.grid(True, which='minor', alpha=0.1, axis='y', linestyle=':') """
+            if num_epochs > 25:
+                # Mostra solo le epoche PARI per evitare sovrapposizione
+                displayed_epochs = epochs[::2]  # Ogni 2 epoche
+                ax.set_xticks(displayed_epochs)
+                ax.set_xticklabels(displayed_epochs, fontsize=tick_fontsize,
+                                rotation=0,  # ← SEMPRE 0°
+                                ha='center')
+                # Aggiungi minor ticks per le epoche non visualizzate
+                ax.set_xticks(epochs, minor=True)
+            else:
+                # Tutte le epoche visibili
+                ax.set_xticks(epochs)
+                ax.set_xticklabels(epochs, fontsize=tick_fontsize,
+                                rotation=0,  # ← SEMPRE 0°
+                                ha='center')
+            
+            ax.tick_params(axis='y', labelsize=tick_fontsize)
+            
+            # Minor ticks per migliorare leggibilità
+            ax.minorticks_on()
+            ax.grid(True, which='minor', alpha=0.1, axis='y', linestyle=':')
+        
+        # ═══════════════════════════════════════════════════════════════
+        # NASCONDI SUBPLOT VUOTI
+        # ═══════════════════════════════════════════════════════════════
         for idx in range(len(self.metrics_to_plot), len(axes)):
             axes[idx].set_visible(False)
-
-        # Titolo principale
-        fig.suptitle('Metriche - Analisi Dettagliata per Epoca', 
-            fontsize=17, fontweight='bold', y=0.955, x=0.5, ha='center')
         
-        plt.tight_layout(rect=[0.10, 0, 0.90, 0.95])
+        # ═══════════════════════════════════════════════════════════════
+        # TITOLO PRINCIPALE
+        # ═══════════════════════════════════════════════════════════════
+        fig.suptitle('Metriche - Analisi Dettagliata per Epoca', 
+                    fontsize=18, fontweight='bold', y=0.985)
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.97])
+        
         return fig
     
     @Step.requires()  

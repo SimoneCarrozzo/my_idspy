@@ -407,7 +407,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════
     
     import os
-    log_dir = "C:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs/v1_Try_TheLastDance_ES"    
+    log_dir = "C:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs/v2_SndTry_ES"    
     os.makedirs(log_dir, exist_ok=True)
     
     epoch_pipeline = ObservablePipeline(
