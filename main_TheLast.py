@@ -31,7 +31,7 @@ from src.idspy.steps.builders.dataloader import BuildDataLoader
 from src.idspy.steps.builders.dataset import BuildDataset
 from src.idspy.steps.transforms.adjust import DropNulls
 from src.idspy.steps.transforms.map import FrequencyMap, LabelMap
-from src.idspy.steps.transforms.scale import StandardScale2, StandardScaleMemoryEfficient
+from src.idspy.steps.transforms.scale import StandardScale
 from src.idspy.steps.transforms.split import (
     AssignSplitPartitions,
     StratifiedSplit,
@@ -45,108 +45,13 @@ from src.idspy.nn.batch import default_collate, Batch
 from src.idspy.nn.helpers import get_device
 from src.idspy.nn.checkpoints import save_checkpoint, save_weights
 from src.idspy.nn.models.classifier import TabularClassifier
-from src.idspy.nn.losses.classification import ClassificationLoss
+from src.idspy.nn.losses.classification import ClassificationLoss, FocalLoss
 
 
 setup_logging() #inizializza il logging: cioè configura il modulo logging di Python
 logger = logging.getLogger(__name__)    #crea un logger per questo modulo
 set_seeds(42) #imposta il seed per la generazione casuale consentendo la riproducibilità
 
-"""
-Pipeline principale per il training di un Network Intrusion Detection System (NIDS)
-con approccio federato e gestione di dati non-IID.
-
-Flusso completo:
-===============
-1. Definizione dello schema dei dati
-2. Setup del sistema di eventi (EventBus)
-3. Preprocessing dei dati (fit-aware pipeline)
-4. Configurazione del modello e della loss
-5. Training con Early Stopping
-6. Visualizzazione delle metriche
-"""
-
-
-""" E' IMPORTANTE PRECISARE CHE PRIMA DI ARRIVARE A QUESTA VERSIONE, CHE CHIAMEREMO V2_SND_TRY_ES E
-    CHE MI HA FATTO OTTENERE:
-        a) accuracy: 99,5
-        b) f1_macro: 80.4
-        c) f1_micro: 99.5
-        d) f1_weighted: 99.4
-        e) precision: 95.9
-        f) recall: 78
-        g) EPOCHE RUNNATE: BEN 32/50
-    
-    IL SETUP IMPLEMENTATO NELLA VERSIONE PRECEDENTE V2_FIRST_TRY_ES, CHE MI HA FATTO OTTENERE:
-        a) accuracy: 99,5
-        b) f1_macro: 80.0
-        c) f1_micro: 99.5
-        d) f1_weighted: 99.4
-        e) precision: 93.7
-        f) recall: 77.4
-        g) EPOCHE RUNNATE: BEN 7/50  
-    
-    PREVEDEVA:
-    
-    BuildDataLoader(
-                in_scope="train",
-                out_scope="train",
-                batch_size=256, # MODIFICATO RISP V1_TRY_STATO_ARTE
-                num_workers=2,  # MODIFICATO RISP V1_TRY_STATO_ARTE
-                pin_memory=True, #AGGIUNTO
-                shuffle=True,
-                collate_fn=default_collate,
-            )
-
-    model = TabularClassifier(
-        num_features=len(schema.numerical),
-        cat_cardinalities=[20] * len(schema.categorical),
-        num_classes=15,
-        hidden_dims=[128, 64, 32],  # MODIFICATO RISP V1_TRY_STATO_ARTE
-        dropout=0.15,               # MODIFICATO RISP V1_TRY_STATO_ARTE
-    ).to(device)
-    
-    
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.00025)    # MODIFICATO RISP V1_TRY_STATO_ARTE
-
-    # #aggiunto
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 
-        mode='min', 
-        factor=0.5, 
-        patience=2,      # MODIFICATO RISP V1_TRY_STATO_ARTE: ridotto da 3 a 2
-        min_lr=1e-6,
-        ####verbose=False
-    )
-    
-    # 🔧 SCEGLI LA STRATEGIA DI SMOOTHING
-    smoothing_strategy = "midway_root"  # Opzioni: "sqrt" (default) o "fourth_root" (più conservativo)  --> AGGIUNTO
-            
-    # Applica smoothing
-    elif smoothing_strategy == "midway_root":
-        logger.info("\n✅ STRATEGIA: MIDWAY-Smoothed Class Weighting (radice pari a 0.40)")
-        class_weights_smoothed = np.power(class_weights_balanced, 0.40)
-    else:
-        raise ValueError(f"Strategia sconosciuta: {smoothing_strategy}")
-        
-     # 🆕 Crea lo step di training con early stopping
-    training_step = TrainWithEarlyStopping(
-        epoch_pipeline=epoch_pipeline,
-        num_epochs=50,              # Numero massimo di epoche
-        patience=5,                 # Ferma se nessun miglioramento per 3 epoche
-        min_delta=0.0005,            # Miglioramento minimo significativo #update di punto 3) da min_delta=0.001 a min_delta=0.0005
-        checkpoint_dir=f"{log_dir}/checkpoints_ES",
-        save_best_only=True,        # Salva solo il miglior modello
-        verbose=True,
-        in_scope="train",      
-        out_scope="train",     
-        name="train_with_early_stopping",
-        scheduler=scheduler
-    ) 
-    
-"""
-
-#AGGIUNTO 21/11:
 import os
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 os.environ['PYTORCH_CUDA_ALLOC_MAX_SPLIT_SIZE_MB'] = '128'  # Limita frammentazione
@@ -223,14 +128,9 @@ def main():
     # ═══════════════════════════════════════════════════════════════════
     # 3️⃣ PIPELINE FIT-AWARE - Trasformazioni che "imparano" dai dati
     # ═══════════════════════════════════════════════════════════════════
-    # Questa pipeline esegue trasformazioni che devono essere "fittate"
-    # sui dati di training (es. StandardScaler impara media e std)
-    # StandardScale(), #standardizza le feature numeriche
-    # FrequencyMap(max_levels=20), #codifica le classi categoriche in base alla frequenza, parametro max_lv imposta il numero massimo di livelli da considerare
-    # LabelMap(), #trasforma le etichette di stringa in numeri interi
     fit_aware_pipeline = FitAwareObservablePipeline(
         steps=[
-            StandardScaleMemoryEfficient(),           
+            StandardScale(),           
             FrequencyMap(max_levels=20),  
             LabelMap(),                
         ],
@@ -249,7 +149,11 @@ def main():
                 nrows=100000000
             ),
             DropNulls(),
-            StratifiedSplit(class_column=schema.target),
+            StratifiedSplit(class_column=schema.target,
+                train_size=0.8,
+                val_size=0.1,
+                test_size=0.1,
+            ),
             fit_aware_pipeline,
             SaveData(
                 file_path="c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/dataset_processati",
@@ -266,22 +170,36 @@ def main():
     # ═══════════════════════════════════════════════════════════════════
     setup_pipeline = ObservablePipeline(
         steps=[
+            # Carica train processato
             LoadData(
                 path_in="c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/dataset_processati/cic_2018_v2.parquet"
-            ),
-            AssignSplitPartitions(),  # Assegna train/test splits
+            ),         
+            #Assegna le partizioni di train - val - test
+            AssignSplitPartitions(), 
+            # 1. TRAIN
             AssignSplitTarget(in_scope="data", out_scope="train"),
-            AssignSplitTarget(in_scope="data", out_scope="test"),
             BuildDataset(out_scope="train"),
             BuildDataLoader(
                 in_scope="train",
                 out_scope="train",
-                batch_size=768, # 1024,#512
-                num_workers=0,  # ← Windows non gestisce bene multiprocessing
-                pin_memory=False, 
+                batch_size=2048,#1024,#512,
+                num_workers=0,#2,  # Metti 0 se su Windows hai problemi, altrimenti 2
+                pin_memory=True,
                 shuffle=True,
                 collate_fn=default_collate,
             ),
+            # 2. VALIDATION
+            AssignSplitTarget(in_scope="data", out_scope="val"),
+            BuildDataset(out_scope="val"),
+            BuildDataLoader(
+                in_scope="val",
+                out_scope="val",
+                batch_size=1024, # Val e Test possono avere batch più grandi (non fanno backprop)
+                shuffle=False,
+                collate_fn=default_collate,
+            ),
+            # 3. TEST
+            AssignSplitTarget(in_scope="data", out_scope="test"),
             BuildDataset(out_scope="test"),
             BuildDataLoader(
                 in_scope="test",
@@ -303,18 +221,25 @@ def main():
         num_features=len(schema.numerical),
         cat_cardinalities=[20] * len(schema.categorical),
         num_classes=15,
-        hidden_dims=[256, 128, 64],
-        dropout=0.2,
+        hidden_dims=[512, 256, 128],  # <--- NUOVA ARCHITETTURA [BIG]
+        dropout=0.2,                      # <--- DROPOUT AUMENTATO
+        # hidden_dims=[512, 256, 128, 64],  # <--- NUOVA ARCHITETTURA [BIG]
+        # dropout=0.3,                      # <--- DROPOUT AUMENTATO
     ).to(device)
 
     
     # Creo loss INIZIALE (senza class weighting)
-    loss_fn = ClassificationLoss().to(device)
+    # loss_fn = ClassificationLoss().to(device)
+    loss_fn = FocalLoss().to(device)
+    # LA TENTEREMO PER IL TRY-SUCCESSIVO V_THELAST4: loss_fn = ClassificationLoss().to(device)
          
-    # 
-    #optimizer = torch.optim.Adam(model.parameters(), lr=0.0003)  # 
-    # optimizer = torch.optim.Adam(model.parameters(), lr=0.0004, weight_decay=1e-5)  # 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0003, weight_decay=1e-5)  # 
+    # MODIFICA DEL 22/11
+    # optimizer = torch.optim.Adam(model.parameters(), lr=0.0003)  # ← CAMBIATO da 0.00025 a 0.0003
+    optimizer = torch.optim.Adam(
+            model.parameters(), 
+            lr=0.0003,           # <--- MANTENIAMO 0.0003 (più sicuro per modello profondo)
+            weight_decay=1e-5    # <--- AGGIUNTO WEIGHT DECAY (Leggero)
+        )
     
     # ═══════════════════════════════════════════════════════════════════
     # 7️⃣ CREAZIONE DELLO STATE INIZIALE
@@ -330,13 +255,13 @@ def main():
         }
     )
         
-    #MODIFICA DEL 6/12 causa 100M righe dataset
+    #MODIFICA DEL 22/11
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 
         mode='min', 
-        factor=0.6, #0.5, #0.6,              # ← passo da 0.7 a 0.5 (riduzione più decisa)
-        patience=10,#8 #6,              # ← passo da 4 a 5 (giusto compromesso)
-        min_lr=1e-6 #5e-7,             # ← passo da 1e-6 a 5e-7 (più margine)
+        factor=0.5,          # <--- FACTOR prima era 0.6
+        patience=3,          # Rimetterei 4 o 3, visto che il modello è grosso e lento a muoversi
+        min_lr=1e-6,
     )
     
     # ═══════════════════════════════════════════════════════════════════
@@ -403,7 +328,6 @@ def main():
 
     logger.info(f"📝 Nomi classi finali: {class_names}\n")
     
-    
     # ═══════════════════════════════════════════════════════════════════
     # 🔟 CORREZIONE LABEL SHIFT (bug fix LabelMap)
     # ═══════════════════════════════════════════════════════════════════
@@ -434,7 +358,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════
     
     import os
-    log_dir = "C:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs/v3_the_seventh"    
+    log_dir = "C:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs1/v_DieselComeBack_v2"    
     os.makedirs(log_dir, exist_ok=True)
     
     epoch_pipeline = ObservablePipeline(
@@ -447,12 +371,26 @@ def main():
             ),  
             ValidateOneEpoch(
                 log_dir=log_dir,           # AGGIUNTO
-                log_prefix="val",          # AGGIUNTO 
-                in_scope="test",           # ← mantengo "test" 
-                out_scope="test",
-                save_outputs=True,
+                log_prefix="val",
+                in_scope="val",      # Uso "val" per monitorare l'andamento
+                out_scope="val",
+                save_outputs=False,
             ),
-            MakePredictions(pred_fn=lambda x: torch.argmax(x, dim=1)),  # Converte output in predizioni
+            # 3. EVALUATE su TEST (NUOVO STEP: Genera gli outputs che MakePredictions richiede)
+            ValidateOneEpoch(
+                log_dir=log_dir,
+                log_prefix="test",
+                in_scope="test",    # Usa il Test DataLoader
+                out_scope="test",   # Scrive i risultati (outputs) nello scope 'test'
+                save_outputs=True,  # Necessario per i passi successivi
+            ),
+            
+            # 4. PREDICTIONS (Ora trova outputs in state['test.outputs'])
+            MakePredictions(
+                pred_fn=lambda x: torch.argmax(x, dim=1),
+                in_scope="test",
+                out_scope="test", # Esplicitiamo lo scope per chiarezza
+            ), 
             ClassificationMetrics(
                 log_dir=log_dir,                   # CAMBIO path
                 log_prefix="test",                 # AGGIUNTO
@@ -485,69 +423,34 @@ def main():
         percentage = (count / total_samples) * 100
         logger.info(f"   Classe {cls:2d}: {count:10,} samples ({percentage:5.2f}%)")
     
-    """ # 🔧 NUOVA STRATEGIA: Smoothing Progressivo Dinamico
-    # ═══════════════════════════════════════════════════════════════════
-    smoothing_strategy = "adaptive_aggressive"  # ← CAMBIA QUI
-
+    # 🔧 SCEGLI LA STRATEGIA DI SMOOTHING
+    smoothing_strategy = "log"  # Opzioni: "sqrt" (default) o "fourth_root" (più conservativo)
+    
     # Calcola i pesi bilanciati automaticamente
     class_weights_balanced = compute_class_weight(
         class_weight='balanced',
         classes=unique_classes,
         y=train_targets
     )
-
-    # 🆕 SMOOTHING ADATTIVO BASATO SULLA CARDINALITÀ DELLA CLASSE
-    if smoothing_strategy == "adaptive_aggressive":
-        logger.info("\n✅ STRATEGIA: Adaptive Aggressive Smoothing")
-        logger.info("   → Classi rare: esponente 0.60 (più peso)")
-        logger.info("   → Classi medie: esponente 0.50")
-        logger.info("   → Classi frequenti: esponente 0.40 (meno peso)\n")
+    class_weights_log = 1 + np.log(total_samples / (class_counts + 1)) 
         
-        # Calcola percentuali classi
-        class_percentages = class_counts / total_samples
-        
-        # Applica smoothing adattivo
-        class_weights_smoothed = np.zeros_like(class_weights_balanced)
-        
-        for idx, (cls, pct) in enumerate(zip(unique_classes, class_percentages)):
-            if pct < 0.01:  # Classi con < 1% dei dati (le 4 problematiche)
-                exponent = 0.65  # ← Peso MASSIMO per classi rarissime
-                category = "RARE"
-            elif pct < 0.05:  # Classi con 1-5% dei dati
-                exponent = 0.55
-                category = "MEDIUM-RARE"
-            elif pct < 0.15:  # Classi con 5-15% dei dati
-                exponent = 0.45
-                category = "MEDIUM"
-            else:  # Classi maggioritarie (>15%)
-                exponent = 0.35  # ← Peso MINIMO per classi frequenti
-                category = "FREQUENT"
-            
-            class_weights_smoothed[idx] = np.power(class_weights_balanced[idx], exponent)
-            
-            logger.info(
-                f"   Classe {cls:2d} ({class_names[cls]:20s}): "
-                f"pct={pct*100:5.2f}% | {category:12s} | "
-                f"exponent={exponent:.2f} | weight={class_weights_smoothed[idx]:.4f}"
-            )
-
+    # # Applica smoothing
+    if smoothing_strategy == "log":
+        logger.info("\n✅ STRATEGIA: Log Class Weighting (logaritmo)")
+        class_weights_smoothed = class_weights_log
+    elif smoothing_strategy == "power_0_3":
+        logger.info("\n✅ STRATEGIA: Hybrid Power Weighting (Power 0.3)")
+        class_weights_smoothed = np.power(class_weights_balanced, 0.30)
     elif smoothing_strategy == "sqrt":
         logger.info("\n✅ STRATEGIA: Smoothed Class Weighting (radice quadrata)")
         class_weights_smoothed = np.sqrt(class_weights_balanced)
-    
     elif smoothing_strategy == "4_root":
         logger.info("\n✅ STRATEGIA: Ultra-Smoothed Class Weighting (radice quarta)")
         class_weights_smoothed = np.power(class_weights_balanced, 0.25)
-        
+        #ATTENZIONE è NUOVO QUELLO CHE SEGUE:
     elif smoothing_strategy == "midway_root":
-        logger.info("\n✅ STRATEGIA: MIDWAY-Smoothed Class Weighting (radice 0.40)")
+        logger.info("\n✅ STRATEGIA: MIDWAY-Smoothed Class Weighting (radice pari a 0.40)")
         class_weights_smoothed = np.power(class_weights_balanced, 0.40)
-        
-    elif smoothing_strategy == "aggressive_uniform":
-        # 🆕 Opzione alternativa: peso uniforme alle classi rare
-        logger.info("\n✅ STRATEGIA: Aggressive Uniform (0.50 per tutte)")
-        class_weights_smoothed = np.power(class_weights_balanced, 0.50)
-        
     else:
         raise ValueError(f"Strategia sconosciuta: {smoothing_strategy}")
 
@@ -556,131 +459,20 @@ def main():
     for cls in unique_classes:
         logger.info(
             f"   Classe {cls:2d}: balanced={class_weights_balanced[cls]:.4f}, "
-            f"smoothed={class_weights_smoothed[cls]:.4f}, "
-            f"ratio={class_weights_smoothed[cls]/class_weights_balanced[cls]:.2%}"
-        ) """
-    """ # 🔧 NUOVA STRATEGIA: Adaptive Aggressive V2 (Ottimizzato per 100M)
-    # ═══════════════════════════════════════════════════════════════════
-    logger.info("\n✅ STRATEGIA: Adaptive Aggressive V2 (Ottimizzato per 100M)")
-    logger.info("   → Classi < 0.1%: esponente 0.70 (BOOST MASSIMO)")
-    logger.info("   → Classi 0.1-1%: esponente 0.60 (BOOST ALTO)")
-    logger.info("   → Classi 1-5%: esponente 0.50 (BOOST MEDIO)")
-    logger.info("   → Classi 5-15%: esponente 0.40 (BOOST LEGGERO)")
-    logger.info("   → Classi >15%: esponente 0.30 (PENALIZZAZIONE)\n")
-
-    # Calcola i pesi bilanciati automaticamente
-    class_weights_balanced = compute_class_weight(
-        class_weight='balanced',
-        classes=unique_classes,
-        y=train_targets
-    )
-
-    # Calcola percentuali classi
-    class_percentages = class_counts / total_samples
-
-    # Applica smoothing adattivo V2
-    class_weights_smoothed = np.zeros_like(class_weights_balanced)
-
-    for idx, (cls, pct) in enumerate(zip(unique_classes, class_percentages)):
-        # 🎯 CALIBRAZIONE OTTIMIZZATA PER 100M SAMPLES
-        if pct < 0.001:  # < 0.1% (SQL-Inj, SSH-BTF - le 2 più difficili)
-            exponent = 0.70  # ← BOOST MASSIMO
-            category = "ULTRA-RARE"
-            emoji = "🔴"
-        elif pct < 0.01:  # 0.1-1% (Loic-UDP, FTP-BTF)
-            exponent = 0.60  # ← BOOST ALTO
-            category = "RARE"
-            emoji = "🟠"
-        elif pct < 0.05:  # 1-5%
-            exponent = 0.50  # ← BOOST MEDIO
-            category = "MEDIUM-RARE"
-            emoji = "🟡"
-        elif pct < 0.15:  # 5-15%
-            exponent = 0.40  # ← BOOST LEGGERO
-            category = "MEDIUM"
-            emoji = "🟢"
-        else:  # >15% (classi maggioritarie)
-            exponent = 0.30  # ← PENALIZZAZIONE
-            category = "FREQUENT"
-            emoji = "🔵"
-        
-        class_weights_smoothed[idx] = np.power(class_weights_balanced[idx], exponent)
-        
-        logger.info(
-            f"{emoji} Classe {cls:2d} ({class_names[cls]:20s}): "
-            f"freq={pct*100:6.3f}% | {category:12s} | "
-            f"exp={exponent:.2f} | bal_w={class_weights_balanced[idx]:6.2f} | "
-            f"final_w={class_weights_smoothed[idx]:6.2f}"
+            f"smoothed={class_weights_smoothed[cls]:.4f}"
         )
-
-    # Normalizza per avere media=1 (opzionale ma consigliato)
-    class_weights_smoothed = class_weights_smoothed / class_weights_smoothed.mean()
- """
-    logger.info("\n✅ STRATEGIA V4: Balanced Boost (Ottimizzato per 100M)")
-    logger.info("   🔴 Classi < 0.1%:  exp=0.65 (era 0.80 in V3, 0.70 in V2)")
-    logger.info("   🟠 Classi 0.1-1%:  exp=0.58 (era 0.70 in V3, 0.60 in V2)")
-    logger.info("   🟡 Classi 1-5%:    exp=0.48 (era 0.55 in V3, 0.50 in V2)")
-    logger.info("   🟢 Classi 5-15%:   exp=0.40 (invariato)")
-    logger.info("   🔵 Classi >15%:    exp=0.30 (era 0.20 in V3, 0.30 in V2)\n")
-
-    # Calcola i pesi bilanciati
-    class_weights_balanced = compute_class_weight(
-        class_weight='balanced',
-        classes=unique_classes,
-        y=train_targets
-    )
-
-    # Calcola percentuali classi
-    class_percentages = class_counts / total_samples
-    class_weights_smoothed = np.zeros_like(class_weights_balanced)
-
-    for idx, (cls, pct) in enumerate(zip(unique_classes, class_percentages)):
-        # 🎯 CALIBRAZIONE V4: Punto medio tra V2 e V3
-        if pct < 0.001:  # SQL-Inj, SSH-BTF
-            exponent = 0.65  # ← Intermedio tra 0.70 (V2) e 0.80 (V3)
-            category = "ULTRA-RARE"
-            emoji = "🔴"
-        elif pct < 0.01:  # Loic-UDP, FTP-BTF
-            exponent = 0.58  # ← Intermedio tra 0.60 (V2) e 0.70 (V3)
-            category = "RARE"
-            emoji = "🟠"
-        elif pct < 0.05:  # Classi medie-rare
-            exponent = 0.48  # ← Intermedio tra 0.50 (V2) e 0.55 (V3)
-            category = "MEDIUM-RARE"
-            emoji = "🟡"
-        elif pct < 0.15:  # Classi medie
-            exponent = 0.40  # ← Invariato (funziona bene)
-            category = "MEDIUM"
-            emoji = "🟢"
-        else:  # Benign, DDoS-HTTP (classi maggioritarie)
-            exponent = 0.30  # ← Torna a V2 (0.20 di V3 era troppo punitivo)
-            category = "FREQUENT"
-            emoji = "🔵"
-        
-        class_weights_smoothed[idx] = np.power(class_weights_balanced[idx], exponent)
-        
-        logger.info(
-            f"{emoji} Classe {cls:2d} ({class_names[cls]:20s}): "
-            f"freq={pct*100:6.3f}% | {category:12s} | "
-            f"exp={exponent:.2f} | bal_w={class_weights_balanced[idx]:6.2f} | "
-            f"final_w={class_weights_smoothed[idx]:6.2f}"
-        )
-
-    # Normalizza
-    class_weights_smoothed = class_weights_smoothed / class_weights_smoothed.mean()
-
-    # Statistiche
-    logger.info(f"\n📊 Statistiche pesi V4:")
-    logger.info(f"   Min: {class_weights_smoothed.min():.4f}")
-    logger.info(f"   Max: {class_weights_smoothed.max():.4f}")
-    logger.info(f"   Ratio max/min: {class_weights_smoothed.max()/class_weights_smoothed.min():.2f}x")
-
-    # Converti in tensor
+    
+    # Converti in tensor PyTorch
     class_weights_tensor = torch.FloatTensor(class_weights_smoothed).to(device)
-    loss_fn = ClassificationLoss(class_weight=class_weights_tensor).to(device)
-    state.set("loss", loss_fn, ClassificationLoss)
-    logger.info(f"🎯 Loss function configurata: V4 Balanced Boost\n")
-   
+    logger.info(f"\n✅ Class weights tensor shape: {class_weights_tensor.shape}")
+    
+    # Aggiorna la loss con i pesi
+    loss_fn = FocalLoss(class_weight=class_weights_tensor, gamma=1.5).to(device)
+    # loss_fn = ClassificationLoss(class_weight=class_weights_tensor).to(device)
+    # state.set("loss", loss_fn, ClassificationLoss)
+    state.set("loss", loss_fn, FocalLoss)
+    logger.info(f"🎯 Loss function configurata: {smoothing_strategy}\n")
+    # logger.info(f"🎯 Classification-Loss con pesi bilanciati NON smoothed\n")
     
     # ═══════════════════════════════════════════════════════════════════
     # 1️⃣3️⃣ TRAINING CON EARLY STOPPING 
@@ -689,12 +481,12 @@ def main():
     logger.info("🚀 FASE 4: TRAINING CON EARLY STOPPING")
     logger.info("="*70)
         
-    #MODIFICA DEL 6/12
+    #MODIFICA DEL 22/11
     training_step = TrainWithEarlyStopping(
         epoch_pipeline=epoch_pipeline,
-        num_epochs=70,              
-        patience=15, #18,                 # ← passo da 8 a 10 poiché con 100M più pazienza
-        min_delta= 0.00005,#0.00002, #0.00005,           # ← passo da 0.0002 a 0.0001 con 100M più sensibile
+        num_epochs=50,              # OK
+        patience=12, #8,                 # ← CAMBIATO da 5 a 8 (più paziente)
+        min_delta=0.0002, #0.0002,           # ← CAMBIATO da 0.0005 a 0.0002 (più tollerante)
         checkpoint_dir=f"{log_dir}/checkpoints_ES",
         save_best_only=True,
         verbose=True,

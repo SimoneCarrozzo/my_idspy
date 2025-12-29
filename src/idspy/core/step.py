@@ -121,6 +121,7 @@ class Step(ABC):
                         )
                     value = result[key]
                     view.set(key, value, typ)
+                    # view.update(key, value, typ)
 
                 return result
 

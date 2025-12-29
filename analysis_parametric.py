@@ -590,16 +590,16 @@ def export_evolution_tables(aggregated_data, subdirs, formats=['csv', 'excel', '
     print("✅ Esportazione completata!\n")
 
 
-def plot_metrics_evolution_heatmap(aggregated_data, metric='f1_score', output_path=None):
-    """
-    Genera heatmap dell'evoluzione di una metrica usando SOLO matplotlib.
-    Versione PROFESSIONALE con colormap attenuata e contrasto intelligente.
+""" def plot_metrics_evolution_heatmap(aggregated_data, metric='f1_score', output_path=None):
     
-    Args:
-        aggregated_data: output di aggregate_multi_epoch_reports()
-        metric: metrica da visualizzare
-        output_path: percorso file output (opzionale)
-    """
+    # Genera heatmap dell'evoluzione di una metrica usando SOLO matplotlib.
+    # Versione PROFESSIONALE con colormap attenuata e contrasto intelligente.
+    
+    # Args:
+    #     aggregated_data: output di aggregate_multi_epoch_reports()
+    #     metric: metrica da visualizzare
+    #     output_path: percorso file output (opzionale)
+    # 
     from matplotlib.colors import LinearSegmentedColormap
     
     df = aggregated_data['metrics_evolution'][metric]
@@ -632,11 +632,30 @@ def plot_metrics_evolution_heatmap(aggregated_data, metric='f1_score', output_pa
     im = ax.imshow(data, cmap=cmap_professional, aspect='auto', vmin=0, vmax=vmax)
     
     # Imposta tick labels
+    #ax.set_xticks(np.arange(len(epoch_labels)))
+    #ax.set_yticks(np.arange(len(class_names)))
+    #ax.set_xticklabels(epoch_labels, fontsize=11, fontweight='bold')
+    #ax.set_yticklabels(class_names, fontsize=10)     
+    
+    # Ruota le etichette delle epoche
+    #plt.setp(ax.get_xticklabels(), rotation=0, ha="center") 
+    # Imposta tick labels
     ax.set_xticks(np.arange(len(epoch_labels)))
     ax.set_yticks(np.arange(len(class_names)))
-    ax.set_xticklabels(epoch_labels, fontsize=11, fontweight='bold')
+
+    # 🆕 CONTROLLO INTELLIGENTE: Se troppe epoche, mostra ogni 2
+    if len(epoch_labels) > 12:
+        # Mostra ogni 2 epoche
+        tick_positions = np.arange(0, len(epoch_labels), 2)
+        tick_labels = [epoch_labels[i] if i < len(epoch_labels) else '' for i in tick_positions]
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, fontsize=11, fontweight='bold')
+    else:
+        # Mostra tutte le epoche (meno di 12)
+        ax.set_xticklabels(epoch_labels, fontsize=11, fontweight='bold')
+
     ax.set_yticklabels(class_names, fontsize=10)
-    
+
     # Ruota le etichette delle epoche
     plt.setp(ax.get_xticklabels(), rotation=0, ha="center")
     
@@ -693,7 +712,175 @@ def plot_metrics_evolution_heatmap(aggregated_data, metric='f1_score', output_pa
         plt.show()
     
     plt.close()
-
+ """
+def plot_metrics_evolution_heatmap(aggregated_data, metric='f1_score', output_path=None):
+    
+    # Heatmap dell'evoluzione di una metrica con gestione DINAMICA delle epoche
+    # Versione PROFESSIONALE - Scalabile fino a 50+ epoche
+    
+    # Args:
+    #     aggregated_data: output di aggregate_multi_epoch_reports()
+    #     metric: metrica da visualizzare
+    #     output_path: percorso file output (opzionale)
+    
+    from matplotlib.colors import LinearSegmentedColormap
+    
+    df = aggregated_data['metrics_evolution'][metric]
+    
+    # Converti DataFrame in numpy array
+    data = df.values
+    class_names = df.index.tolist()
+    epoch_labels = df.columns.tolist()
+    
+    num_epochs = len(epoch_labels)
+    num_classes = len(class_names)
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ GESTIONE DINAMICA DIMENSIONI FIGURA + FONT PROPORZIONATO
+    # ═══════════════════════════════════════════════════════════════
+    
+    if num_epochs <= 12:
+        fig_width = 14
+        fontsize_epoch = 12
+        fontsize_value = 10
+        fontsize_title = 17
+        fontsize_label = 14
+        fontsize_cbar = 14
+        epoch_step = 1  # Mostra ogni epoca
+        
+    elif num_epochs <= 20:
+        fig_width = 22
+        fontsize_epoch = 11
+        fontsize_value = 9
+        fontsize_title = 16
+        fontsize_label = 13
+        fontsize_cbar = 13
+        epoch_step = 1  # Mostra ogni epoca
+        
+    elif num_epochs <= 32:
+        fig_width = 28
+        fontsize_epoch = 10
+        fontsize_value = 8
+        fontsize_title = 15
+        fontsize_label = 12
+        fontsize_cbar = 12
+        epoch_step = 2  # Mostra ogni 2 epoche
+        
+    elif num_epochs <= 50:
+        fig_width = 36
+        fontsize_epoch = 9
+        fontsize_value = 7
+        fontsize_title = 14
+        fontsize_label = 11
+        fontsize_cbar = 11
+        epoch_step = 3  # Mostra ogni 3 epoche
+        
+    else:  # > 50 epoche
+        fig_width = 42
+        fontsize_epoch = 8
+        fontsize_value = 6
+        fontsize_title = 13
+        fontsize_label = 10
+        fontsize_cbar = 10
+        epoch_step = 5  # Mostra ogni 5 epoche
+    
+    fig_height = max(8, num_classes * 0.4)
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ COLORMAP PERSONALIZZATA - Tonalità Attenuate
+    # ═══════════════════════════════════════════════════════════════
+    
+    colors_custom = [
+        '#C62828',  # Rosso scuro (0.0)
+        '#E57373',  # Rosso chiaro (0.25)
+        '#FFB74D',  # Arancione (0.4)
+        '#FFF59D',  # Giallo chiaro (0.5)
+        '#AED581',  # Verde chiaro (0.7)
+        '#66BB6A',  # Verde medio (0.85)
+        '#388E3C'   # Verde scuro (1.0)
+    ]
+    
+    cmap_professional = LinearSegmentedColormap.from_list('professional', colors_custom, N=256)
+    
+    # Applica heatmap
+    vmax = 1 if metric in ['f1_score', 'precision', 'recall'] else data.max()
+    im = ax.imshow(data, cmap=cmap_professional, aspect='auto', vmin=0, vmax=vmax)
+    
+    # Imposta tick positions
+    ax.set_xticks(np.arange(len(epoch_labels)))
+    ax.set_yticks(np.arange(len(class_names)))
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ GESTIONE INTELLIGENTE ETICHETTE EPOCHE (Ogni N step)
+    # ═══════════════════════════════════════════════════════════════
+    
+    tick_positions = np.arange(0, len(epoch_labels), epoch_step)
+    tick_labels = [epoch_labels[i] for i in tick_positions if i < len(epoch_labels)]
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, fontsize=fontsize_epoch, fontweight='bold')
+    
+    ax.set_yticklabels(class_names, fontsize=10)
+    
+    # Ruota le etichette delle epoche
+    plt.setp(ax.get_xticklabels(), rotation=0, ha="center")
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ ANNOTAZIONI CON CONTRASTO INTELLIGENTE
+    # ═══════════════════════════════════════════════════════════════
+    
+    for i in range(len(class_names)):
+        for j in range(len(epoch_labels)):
+            value = data[i, j]
+            
+            # Logica contrasto ottimizzata
+            if value < 0.30:
+                text_color = 'black'
+                font_weight = 'bold'
+            elif value < 0.50:
+                text_color = 'black'
+                font_weight = 'bold'
+            elif value < 0.75:
+                text_color = 'black'
+                font_weight = 'bold'
+            else:
+                text_color = 'black'
+                font_weight = 'bold'
+            
+            ax.text(j, i, f'{value:.3f}',
+                    ha="center", va="center", 
+                    color=text_color,
+                    fontsize=fontsize_value,
+                    fontweight=font_weight)
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ COLORBAR E TITOLI (DIMENSIONI PROPORZIONATE)
+    # ═══════════════════════════════════════════════════════════════
+    
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label(metric.replace('_', ' ').title(), fontsize=fontsize_cbar, fontweight='bold')
+    cbar.ax.tick_params(labelsize=fontsize_cbar - 2)
+    
+    ax.set_title(f'Evoluzione {metric.replace("_", " ").title()} per Epoca',
+                 fontsize=fontsize_title, fontweight='bold', pad=20)
+    ax.set_xlabel('Epoca', fontsize=fontsize_label, fontweight='bold', labelpad=10)
+    ax.set_ylabel('Classe', fontsize=fontsize_label, fontweight='bold', labelpad=10)
+    
+    # Grid sottile
+    ax.set_xticks(np.arange(len(epoch_labels)) - 0.5, minor=True)
+    ax.set_yticks(np.arange(len(class_names)) - 0.5, minor=True)
+    ax.grid(which="minor", color="gray", linestyle='-', linewidth=0.5, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"✅ Heatmap salvata ({num_epochs} epoche): {output_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+    
 def plot_metrics_evolution_lines(aggregated_data, metric='f1_score', 
                                  classes_to_plot=None, output_path=None):
     """

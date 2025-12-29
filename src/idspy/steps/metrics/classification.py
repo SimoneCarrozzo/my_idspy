@@ -8,12 +8,15 @@ from ...core.state import State
 
 import logging
 import json
-import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
 
 import io
 from PIL import Image
+
+import matplotlib.pyplot as plt
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
+logging.getLogger('PIL').setLevel(logging.WARNING)
 
 class ClassificationMetrics(Step):
     """Compute metrics for multiclass classification. --> 13/11 ho riscritto la classe"""
@@ -29,6 +32,8 @@ class ClassificationMetrics(Step):
         in_scope: str = "test",
         out_scope: str = "test",
         name: Optional[str] = None,
+        train_class_counts: Optional[Dict[int, int]] = None,  # 🆕 
+
     ) -> None:
         self.writer: Optional[SummaryWriter] = (
             SummaryWriter(f"{log_dir}") if log_dir else None  #/{log_prefix} ← Aggiunto log_prefix
@@ -44,6 +49,8 @@ class ClassificationMetrics(Step):
         self.save_classification_report = save_classification_report
         self.save_f1_per_class_plot = save_f1_per_class_plot #aggiunto
         
+        self.train_class_counts = train_class_counts  # 🆕 
+
         # Crea directory se necessario
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
@@ -348,9 +355,26 @@ class ClassificationMetrics(Step):
                 f"classification_report_epoch_{epoch}.txt"
             )
             
-            with open(report_path, 'w') as f:
+            with open(report_path, 'w', encoding='utf-8') as f:
+
                 f.write(f"Classification Report - Epoch {epoch}\n")
                 f.write(f"{'='*80}\n\n")
+                
+                # 🆕 AGGIUNta distribuzione train
+                if self.train_class_counts:
+                    f.write("📊 Train Set Distribution (after SMOTE):\n")
+                    f.write(f"{'-'*80}\n")
+                    total = sum(self.train_class_counts.values())
+                    max_count = max(self.train_class_counts.values())
+                    
+                    for class_idx, count in sorted(self.train_class_counts.items()):
+                        class_name = self.class_names[class_idx] if self.class_names else f"Class {class_idx}"
+                        pct = (count / total) * 100
+                        ratio = max_count / count if count > 0 else float('inf')
+                        f.write(f"  {class_name:25s}: {count:10,} ({pct:5.2f}%) - ratio {ratio:.1f}:1\n")
+                    
+                    f.write(f"\n{'='*80}\n\n")
+                
                 f.write(report)
             
             logging.info(f"💾 Classification Report salvato: {report_path}")

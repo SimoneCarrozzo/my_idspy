@@ -78,3 +78,55 @@ class ClassificationLoss(BaseLoss):
 
         loss = loss[valid_mask]
         return self._reduce(loss)
+
+
+class FocalLoss(BaseLoss):
+    """Focal Loss for addressing class imbalance."""
+
+    def __init__(
+        self,
+        gamma: float = 2.0,  # Focus parameter (2.0 è standard)
+        reduction: str = "mean",
+        ignore_index: int = -1,
+        class_weight: Optional[Tensor] = None,
+    ) -> None:
+        """Initialize Focal loss.
+        
+        Args:
+            gamma: Focusing parameter. Higher values focus more on hard examples.
+            reduction: 'mean', 'sum', 'none'
+            ignore_index: Index to ignore
+            class_weight: Per-class weights
+        """
+        super().__init__(reduction)
+        self.gamma = gamma
+        self.ignore_index = ignore_index
+
+        if class_weight is not None:
+            self.register_buffer("class_weight", class_weight)
+        else:
+            self.class_weight = None
+
+    def forward(
+        self,
+        pred: Tensor,
+        target: Optional[Tensor],
+    ) -> Tensor:
+        """Compute Focal loss."""
+        
+        # Calcola la Cross Entropy standard senza riduzione
+        ce_loss = F.cross_entropy(
+            pred,
+            target,
+            weight=self.class_weight,
+            ignore_index=self.ignore_index,
+            reduction="none",
+        )
+
+        # Calcola pt (probabilità che il modello assegna alla classe corretta)
+        pt = torch.exp(-ce_loss)
+
+        # Formula Focal Loss: (1 - pt)^gamma * ce_loss
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+
+        return self._reduce(focal_loss)

@@ -2,7 +2,9 @@ from typing import Optional, Dict, Any
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import CategoricalDtype   #per definire tipi di dati categorici ordinati in pandas
+from pandas.api.types import CategoricalDtype
+
+from ...data.tab_accessor import PartitionName   #per definire tipi di dati categorici ordinati in pandas
 
 from ...core.step import FitAwareStep, Step
 from ...core.state import State
@@ -29,10 +31,10 @@ class FrequencyMap(FitAwareStep):
             in_scope=in_scope,
             out_scope=out_scope,
         )
-
+    
     @Step.requires(root=pd.DataFrame)
     def fit_impl(self, state: State, root: pd.DataFrame) -> None:
-        """Infer ordered categories by frequency from train split."""
+        #Infer ordered categories by frequency from train split
         train_df = root.tab.train
         self.cat_types.clear()
 
@@ -48,7 +50,30 @@ class FrequencyMap(FitAwareStep):
                 cats = vc.head(self.max_levels).index.tolist()  
 
             self.cat_types[col] = CategoricalDtype(categories=cats, ordered=True)   #oridne significativo: la categoria più frequente ha il codice più basso
-            #crea un CategoricalDtype con le categorie ordinate e lo salva nel dizionario
+            # crea un CategoricalDtype con le categorie ordinate e lo salva nel dizionario
+    # @Step.requires(root=pd.DataFrame)
+    # def fit_impl(self, state: State, root: pd.DataFrame) -> None:
+    #  #✅ NUOVA IMPLEMENTAZIONE DELLA FUNZIONE FIT_IMPL LEGGERMENTE MODIFICATA:
+    #     if root.tab.has_partitions and root.tab.has_partition(PartitionName.TRAIN.value):
+    #         train_df = root.tab.train
+    #     else:
+    #         train_df = root  # ← Usa direttamente root
+        
+    #     self.cat_types.clear()
+    #     cat_cols = train_df.tab.categorical.columns
+        
+    #     for col in cat_cols:
+    #         vc = train_df[col].value_counts(dropna=False)
+    #         if vc.empty:
+    #             continue
+            
+    #         if self.max_levels is None:
+    #             cats = vc.index.tolist()
+    #         else:
+    #             cats = vc.head(self.max_levels).index.tolist()
+            
+    #         self.cat_types[col] = CategoricalDtype(categories=cats, ordered=True)
+
 
     @Step.requires(root=pd.DataFrame)
     @Step.provides(root=pd.DataFrame, cat_mapping=dict)
@@ -95,7 +120,7 @@ class LabelMap(FitAwareStep):
 
     @Step.requires(root=pd.DataFrame)
     def fit_impl(self, state: State, root: pd.DataFrame) -> None:
-        """Learn ordered categories for the target col (if not binary)."""
+        #Learn ordered categories for the target col (if not binary).
 
         # Early exit for binary case
         #se il tag è specificato, non serve imparare categorie ordinate, ritorna subito
@@ -108,8 +133,26 @@ class LabelMap(FitAwareStep):
 
         vc = train_df[tgt_col].value_counts(dropna=False)
         self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
+    # def fit_impl(self, state: State, root: pd.DataFrame) -> None:
+    #     """NUOVA VERSIONE DEL FIT_IMPL CHE GESTISCE LE PARTIZIONI: LEGGERMENTE DIVERSA RISPETTO LA PRECEDENTE"""
+    #     # Early exit for binary case
+    #     if self.benign_tag is not None:
+    #         self.cat_types = None
+    #         return
+        
+    #     # ✅ Se ci sono partizioni, usa 'train', altrimenti usa tutto
+    #     if root.tab.has_partitions and root.tab.has_partition(PartitionName.TRAIN.value):
+    #         train_df = root.tab.train
+    #     else:
+    #         train_df = root  # ← Usa direttamente root
+        
+    #     tgt_col = train_df.tab.schema.target
+    #     vc = train_df[tgt_col].value_counts(dropna=False)
+    #     self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
+    
 
     @Step.requires(root=pd.DataFrame)
+    #@Step.provides(root=pd.DataFrame, target_mapping=dict | None)  # ← Cambiato qui
     @Step.provides(root=pd.DataFrame, target_mapping=CategoricalDtype | None)
     def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
         tgt_col = root.tab.schema.target
@@ -119,6 +162,7 @@ class LabelMap(FitAwareStep):
         if self.benign_tag is not None: #se è specificato il benign_tag, esegue la codifica binaria
             tgt = (prev == self.benign_tag).astype("int32")
             tgt = tgt.where(tgt == 0, 1)
+            #AGGIUNTO:            target_mapping_dict = None 
         else:
             s = prev.astype(self.cat_types)
             codes = s.cat.codes
@@ -127,7 +171,13 @@ class LabelMap(FitAwareStep):
                 index=s.index,
                 name=tgt_col,
             )   #sostituisce la colonna con i codici, mappando -1 (categorie non viste) al valore default
-
+            
+            #AGGIUNTO: Converti CategoricalDtype in dizionario
+            # target_mapping_dict = {
+            #     "categories": self.cat_types.categories.tolist(),
+            #     "ordered": self.cat_types.ordered
+            # }
         root[f"original_{tgt_col}"] = prev
         root.tab.target = tgt
         return {"root": root, "target_mapping": self.cat_types}
+        # return {"root": root, "target_mapping": target_mapping_dict}

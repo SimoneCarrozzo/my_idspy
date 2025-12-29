@@ -21,18 +21,38 @@ class State:
 
     # ---------- typed access ----------
 
+    #METODO HELPER AGGIUNTO
+    def _get_type_name(self, typ: Any) -> str:
+        """Get a readable name for a type, handling UnionType and other complex types."""
+        if hasattr(typ, '__name__'):
+            return typ.__name__
+        elif hasattr(typ, '__origin__'):  # typing.Union, typing.Optional, etc.
+            if hasattr(typ, '__args__'):
+                args = ', '.join(self._get_type_name(arg) for arg in typ.__args__)
+                origin_name = getattr(typ.__origin__, '__name__', str(typ.__origin__))
+                return f"{origin_name}[{args}]"
+            return str(typ)
+        else:
+            # Per types.UnionType (int | str in Python 3.10+)
+            return str(typ)
+    
+    
     def set(self, key: str, value: T, typ: Type[T]) -> None:
         """Set value enforcing type."""
         if not isinstance(value, typ):
             raise TypeError(
-                f"Value for '{key}' must be {typ.__name__}, not {type(value).__name__}"
+
+                f"Value for '{key}' must be {self._get_type_name(typ)}, not {self._get_type_name(type(value))}"
+                #f"Value for '{key}' must be {typ.__name__}, not {type(value).__name__}"
             )
         # Check existing value type compatibility
         if key in self._data:
             existing_type = type(self._data[key])
             if existing_type is not typ:
                 raise TypeError(
-                    f"Key '{key}' already exists with type {existing_type.__name__}, not {typ.__name__}"
+                    
+                    f"Key '{key}' already exists with type {self._get_type_name(existing_type)}, not {self._get_type_name(typ)}"
+                    #f"Key '{key}' already exists with type {existing_type.__name__}, not {typ.__name__}"
                 )
         self._data[key] = value
 
@@ -40,7 +60,9 @@ class State:
         """Force-set value (replaces existing type)."""
         if not isinstance(value, typ):
             raise TypeError(
-                f"Value for '{key}' must be {typ.__name__}, not {type(value).__name__}"
+                
+                f"Value for '{key}' must be {self._get_type_name(typ)}, not {self._get_type_name(type(value))}"
+                #f"Value for '{key}' must be {typ.__name__}, not {type(value).__name__}"
             )
         self._data[key] = value
 
@@ -51,8 +73,10 @@ class State:
 
         value = self._data[key]
         if not isinstance(value, typ):
-            actual_type = type(value).__name__
-            expected_type = typ.__name__
+            # actual_type = type(value).__name__
+            # expected_type = typ.__name__
+            actual_type = self._get_type_name(type(value))
+            expected_type = self._get_type_name(typ)
             raise TypeError(f"Key '{key}' contains {actual_type}, not {expected_type}")
         return value
 

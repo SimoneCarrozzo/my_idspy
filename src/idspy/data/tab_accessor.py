@@ -25,6 +25,8 @@ from ..common.profiler import time_profiler
 @register_dataframe_accessor("tab")
 class TabAccessor:
     """Schema + partition accessor."""
+    
+
 
     def __init__(self, pandas_obj: pd.DataFrame):
         self._obj = pandas_obj
@@ -62,6 +64,14 @@ class TabAccessor:
             return reattach_meta(self._obj, out)
         return None
 
+    
+    #NUOVO METODO AGGIUNTO
+    def has_partition(self, name: str) -> bool:
+        """Check if a partition exists."""
+        # return name in self._partitions
+        return name in self.partitions.mapping
+
+    
     @property
     def schema(self) -> Schema:
         """Get the schema from DataFrame attrs."""
@@ -72,6 +82,15 @@ class TabAccessor:
         """Get the partitions from DataFrame attrs."""
         return self._obj.attrs["_partitions"]
 
+    
+    #NUOVO METODO AGGIUNTO
+    @property
+    def has_partitions(self) -> bool:
+        """Check if any partitions are defined."""
+        # return len(self._partitions) > 0
+        return len(self.partitions.mapping) > 0
+    
+    
     def set_schema(
         self, schema: Optional["Schema"] = None, **roles: List[str]
     ) -> pd.DataFrame:
@@ -287,3 +306,5 @@ def reattach_meta(
         out.attrs["_partitions"] = splits
 
     return out
+
+
