@@ -15,7 +15,6 @@ from src.idspy.core.step import Step
 from src.idspy.core.state import State
 from sklearn.model_selection import train_test_split
 
-# logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 """
@@ -93,20 +92,13 @@ class IdentifyTopHosts(Step):
         
         # Create statistics DataFrame
         stats_data = []
-        #label_col = 'Label'  # Assuming this exists
-        # attack_col = 'Attack'
+        
         for ip in top_ips:
             bidirectional_data = root[
                 (root[self.src_ip_col] == ip) | 
                 (root[self.dst_ip_col] == ip)
             ]
             
-            #label_counts = bidirectional_data[label_col].value_counts()
-            # label_counts = bidirectional_data[self.attack_col].value_counts()
-            # benign_count = label_counts.get('Benign', 0)
-            # ####attack_count = sum(v for k, v in label_counts.items() if k != 'Benign')
-            # attack_count = len(bidirectional_data) - benign_count
-
             # 🆕 MIGLIORATA la gestione dei conteggi che ora è più robusta
             attack_counts = bidirectional_data[self.attack_col].value_counts()
             benign_count = attack_counts.get('Benign', 0)
@@ -353,38 +345,6 @@ class FederatedSplits(Step):
         if split_warnings:
             logger.warning(f"⚠️ Problemi riscontrati in {len(split_warnings)} host")
         
-        # # COME ERA IMPLEMENTATO PRIMA:
-        # for ip, data in federated_datasets.items():
-        #     # Stratified split per host
-            
-        #     # First split: train vs (val+test)
-        #     train_data, temp_data = train_test_split(
-        #         data,
-        #         train_size=self.train_size,
-        #         stratify=data[self.stratify_column],
-        #         random_state=seed
-        #     )
-            
-        #     # Second split: val vs test
-        #     val_ratio = self.val_size / (self.val_size + self.test_size)
-        #     val_data, test_data = train_test_split(
-        #         temp_data,
-        #         train_size=val_ratio,
-        #         stratify=temp_data[self.stratify_column],
-        #         random_state=seed
-        #     )
-            
-        #     federated_splits[ip] = {
-        #         'train': train_data.reset_index(drop=True),
-        #         'val': val_data.reset_index(drop=True),
-        #         'test': test_data.reset_index(drop=True)
-        #     }
-            
-        #     logger.info(
-        #         f"Host {ip}: train={len(train_data)}, "
-        #         f"val={len(val_data)}, test={len(test_data)}"
-        #     )
-        
         return {"federated_splits": federated_splits, "split_warnings": split_warnings}  # Ritorno anche i warnings
 
 # ============================================================================
@@ -393,26 +353,223 @@ class FederatedSplits(Step):
 class AnalyzeNonIID(Step):
     def __init__(
         self,
-        label_col: str = 'Attack',  # 🆕 Colonna binaria (0=Benign, 1=Attack)
-        benign_label: str = 'Benign', #aggiunto
-        #attack_type_col: str = 'Label',  # 🆕 Colonna con tipo di attacco specifico
-        debug: bool = True,#False,  # 🆕 Flag per logging dettagliato
+        label_col: str = 'Attack',  # La colonna binaria (0/1) usata per contare quanti attacchi ci sono
+        benign_label: str = 'Benign', 
+        attack_type_col: str = 'Label',  # La colonna originale target
+        debug: bool = True,
         in_scope: str = "federated",
         out_scope: str = "federated",
         name: Optional[str] = None,
     ):
         self.label_col = label_col
-        self.benign_label = benign_label  # 🆕
-        # self.attack_type_col = attack_type_col
-        self.debug = debug  # 🆕
+        self.benign_label = benign_label
+        self.attack_type_col = attack_type_col
+        self.debug = debug
         
         super().__init__(
             name=name or "analyze_non_iid",
             in_scope=in_scope,
             out_scope=out_scope,
         )
-    
+
     @Step.requires(federated_datasets=dict)
+    @Step.provides(non_iid_analysis=pd.DataFrame, non_iid_metrics=dict)
+    def run(
+        self, 
+        state: State, 
+        federated_datasets: Dict[str, pd.DataFrame]
+    ) -> Optional[Dict[str, Any]]:
+        # --- DEBUG AREA ---
+        # cat_mapping = state.get("data.cat_mapping", dict) if state.has("data.cat_mapping") else {}
+        # logger.info("================ ISPEZIONE MAPPING ================")
+        # logger.info(f"Keys presenti in cat_mapping: {list(cat_mapping.keys())}")
+        
+        # target_col = 'Label' # O il nome della tua colonna attacchi
+        # if target_col in cat_mapping:
+        #     mapping_obj = cat_mapping[target_col]
+        #     logger.info(f"Tipo oggetto mapping per '{target_col}': {type(mapping_obj)}")
+        #     logger.info(f"Contenuto (prime voci): {str(mapping_obj)[:500]}") # Stampa i primi caratteri
+            
+        #     if hasattr(mapping_obj, 'categories'):
+        #          logger.info(f"Categories trovate: {mapping_obj.categories}")
+        # else:
+        #     logger.info(f"ATTENZIONE: Nessun mapping trovato per la colonna '{target_col}'")
+        # logger.info("===================================================")
+        # ---------------------------
+        logger.info("Analizzando le caratteristiche non-IID (con recupero nomi originali)...")
+        
+        # Tentativo di recuperare il mapping (serve solo se non troviamo la colonna original)
+        cat_mapping = state.get("data.cat_mapping", dict) if state.has("data.cat_mapping") else {}
+        
+        analysis_data = []
+        
+        for ip, data in federated_datasets.items():
+            
+            # 1. Calcolo % Benign vs Attack (Basato sulla colonna binaria)
+            # label_col qui dovrebbe essere quella binaria (0/1) o mappata
+            label_counts = data[self.label_col].value_counts(normalize=True)
+            
+            # Gestione sicura 0/1
+            benign_pct = label_counts.get(0, 0.0) * 100
+            attack_pct = label_counts.get(1, 0.0) * 100
+            
+            # 2. Analisi Tipo di Attacco
+            top_attack_name = "None"
+            top_attack_pct = 0.0
+            dominance = 0.0
+            
+            # Filtriamo solo le righe che sono ATTACCHI
+            # Assumiamo che 1 = Attack nella colonna label_col
+            attack_mask = data[self.label_col] == 1
+            attack_data = data[attack_mask]
+            
+            #logger.debug(f"Colonne disponibili in attack_data: {attack_data.columns.tolist()}")
+            
+            if len(attack_data) > 0:
+                # 🛠️ STRATEGIA DI SELEZIONE FORZATA
+                # Cerchiamo prioritariamente la colonna "original_..." perché contiene le STRINGHE
+                
+                target_col_name = None
+                
+                # 1. Forza la ricerca del backup testuale (quello creato da LabelMapGlobal)
+                if "original_Attack" in attack_data.columns:
+                    target_col_name = "original_Attack"
+                elif "original_Label" in attack_data.columns:
+                    target_col_name = "original_Label"
+                elif f"original_{self.attack_type_col}" in attack_data.columns:
+                    target_col_name = f"original_{self.attack_type_col}"
+                else:
+                    # 2. Se non c'è il backup, usiamo quella definita, ma sappiamo che sarà un codice
+                    target_col_name = self.attack_type_col
+
+                if self.debug and ip == list(federated_datasets.keys())[0]:
+                    logger.info(f"🎯 DECISIONE: Uso '{target_col_name}' (Trovate: {[c for c in attack_data.columns if 'original' in c]})")
+
+                # Conteggio valori
+                type_counts = attack_data[target_col_name].value_counts()
+                
+                if len(type_counts) > 0:
+                    top_val = type_counts.index[0]
+                    count = type_counts.iloc[0]
+                    
+                    top_attack_pct = (count / len(attack_data)) * 100
+                    dominance = top_attack_pct / 100
+                    
+                    # Se è un numero, proviamo a usare il mapping dello stato
+                    if isinstance(top_val, (int, float, np.integer)):
+                        # Cerchiamo il mapping per 'Label' o 'Attack'
+                        mapping = None
+                        if self.attack_type_col in cat_mapping:
+                            mapping = cat_mapping[self.attack_type_col]
+                        elif 'Label' in cat_mapping:
+                            mapping = cat_mapping['Label']
+                        elif 'Attack' in cat_mapping:
+                            mapping = cat_mapping['Attack']
+                        
+                        if mapping is not None and hasattr(mapping, 'categories'):
+                            try:
+                                cats = mapping.categories
+                                idx = int(top_val)
+                                # Spesso i codici sono 1-based se 0 è riservato
+                                if 1 <= idx <= len(cats):
+                                    top_attack_name = str(cats[idx-1])
+                                elif 0 <= idx < len(cats):
+                                    top_attack_name = str(cats[idx])
+                                else:
+                                    top_attack_name = f"Code_{top_val}"
+                            except:
+                                top_attack_name = f"Code_{top_val}"
+                        else:
+                            top_attack_name = f"Code_{top_val}"
+                    else:
+                        # È UNA STRINGA! Vittoria.
+                        top_attack_name = str(top_val)
+            """ if len(attack_data) > 0:
+                # 🔥 IL PUNTO CRUCIALE: Cerchiamo la colonna con i NOMI veri
+                # LabelMapGlobal crea "original_Label" (o "original_Attack")
+                possible_cols = [
+                    f"original_{self.attack_type_col}", # Priorità 1: Backup creato da LabelMap
+                    self.attack_type_col,               # Priorità 2: Colonna standard
+                    "original_Label",                   # Fallback esplicito
+                    "original_label",                   # Fallback esplicito
+                    "original_Attack",                   # Fallback esplicito
+                    "Label",
+                    "Attack"
+                ]
+                
+                target_col_name = None
+                for col in possible_cols:
+                    if col in attack_data.columns:
+                        target_col_name = col
+                        break
+                
+                if target_col_name:
+                    if self.debug and ip == list(federated_datasets.keys())[0]:
+                        logger.info(f"🔍 Host {ip}: Uso colonna '{target_col_name}' per identificare i tipi di attacco.")
+
+                    # Conteggio valori
+                    type_counts = attack_data[target_col_name].value_counts()
+                    
+                    if len(type_counts) > 0:
+                        top_val = type_counts.index[0] # Questo sarà la stringa "DoS" se usiamo original_!
+                        count = type_counts.iloc[0]
+                        
+                        top_attack_pct = (count / len(attack_data)) * 100
+                        dominance = top_attack_pct / 100
+                        
+                        # Se il valore è ancora un numero (perché non abbiamo trovato original_), proviamo a decodificare
+                        if isinstance(top_val, (int, float, np.number)):
+                            # Qui entra in gioco il mapping solo se necessario
+                            if self.attack_type_col in cat_mapping and hasattr(cat_mapping[self.attack_type_col], 'categories'):
+                                try:
+                                    cats = cat_mapping[self.attack_type_col].categories
+                                    # Gestione indice 0-based vs 1-based
+                                    idx = int(top_val)
+                                    if 0 <= idx < len(cats):
+                                        top_attack_name = str(cats[idx])
+                                    elif 0 <= (idx - 1) < len(cats):
+                                         top_attack_name = str(cats[idx-1])
+                                    else:
+                                        top_attack_name = f"Code_{top_val}"
+                                except:
+                                    top_attack_name = f"Code_{top_val}"
+                            else:
+                                top_attack_name = f"Code_{top_val}"
+                        else:
+                            # È già una stringa! (Caso original_Label)
+                            top_attack_name = str(top_val)
+             """
+            analysis_data.append({
+                'ip_address': ip,
+                'total_samples': len(data),
+                'benign_percentage': benign_pct,
+                'attack_percentage': attack_pct,
+                'top_attack_type': top_attack_name,
+                'top_attack_percentage': top_attack_pct,
+                'attack_dominance': dominance,
+            })
+        
+        analysis_df = pd.DataFrame(analysis_data)
+        
+        logger.info("\n" + "="*70)
+        logger.info("📊 Analisi Non-IID:")
+        logger.info(f"\n{analysis_df.to_string()}")
+        
+        # Metriche
+        top_attacks = analysis_df['top_attack_type'].value_counts().to_dict()
+        non_iid_metrics = {
+            'attack_percentage_variance': analysis_df['attack_percentage'].var(),
+            'attack_percentage_std': analysis_df['attack_percentage'].std(),
+            'average_attack_dominance': analysis_df['attack_dominance'].mean(),
+            'num_hosts': len(analysis_df),
+            'top_attacks_distribution': top_attacks
+        }
+        
+        return {
+            "non_iid_analysis": analysis_df,
+            "non_iid_metrics": non_iid_metrics
+        }        
+""" @Step.requires(federated_datasets=dict)
     @Step.provides(non_iid_analysis=pd.DataFrame, non_iid_metrics=dict)  # 🆕 Aggiungo metrics
     def run(
         self, 
@@ -433,18 +590,19 @@ class AnalyzeNonIID(Step):
             label_counts = data[self.label_col].value_counts(normalize=True)
             
             # 🆕 Benign percentage usando il nome della classe
-            benign_pct = label_counts.get(self.benign_label, 0) * 100
+            # benign_pct = label_counts.get(self.benign_label, 0) * 100
+            benign_pct = label_counts.get(0, 0) * 100
             
             # 🆕 Attack percentage = tutto tranne Benign
-            attack_pct = (1 - label_counts.get(self.benign_label, 0)) * 100
+            # attack_pct = (1 - label_counts.get(self.benign_label, 0)) * 100
+            attack_pct = label_counts.get(1, 0) * 100
             
             if self.debug:
                 logger.info(f"   Benign %: {benign_pct:.2f}")
                 logger.info(f"   Attack %: {attack_pct:.2f}")
             
             # 🆕 Attack type analysis (filtra Benign)
-            attack_data = data[data[self.label_col] != self.benign_label]
-            
+            attack_data = data[data[self.label_col] != self.benign_label] 
             if len(attack_data) > 0:
                 attack_type_counts = attack_data[self.label_col].value_counts()
                 
@@ -469,7 +627,7 @@ class AnalyzeNonIID(Step):
             else:
                 top_attack = None
                 top_attack_pct = 0
-                dominance = 0
+                dominance = 0  
             
             analysis_data.append({
                 'ip_address': ip,
@@ -513,220 +671,7 @@ class AnalyzeNonIID(Step):
             "non_iid_analysis": analysis_df,
             "non_iid_metrics": non_iid_metrics
         }
-        
-        # for ip, data in federated_datasets.items():
-        #     if self.debug:  # 🆕 Logging condizionale
-        #         logger.info(f"\n🔍 DEBUG - Host {ip}:")
-        #         logger.info(f"   Colonne disponibili: {data.columns.tolist()}")
-            
-        #     # Conta benign/attack usando label_col
-        #     label_counts = data[self.label_col].value_counts(normalize=True)
-            
-        #     benign_pct = label_counts.get(0, 0) * 100  # 0 = Benign
-        #     attack_pct = label_counts.get(1, 0) * 100  # 1 = Attack
-            
-        #     # Attack type analysis
-        #     if self.attack_type_col in data.columns:
-        #         attack_data = data[data[self.label_col] == 1]  # Solo attacchi
-                
-        #         if len(attack_data) > 0:
-        #             attack_type_counts = attack_data[self.attack_type_col].value_counts()
-                    
-        #             # 🆕 Rimuovi 'Benign' se presente (dovrebbe essere filtrato già)
-        #             attack_type_counts = attack_type_counts[attack_type_counts.index != 'Benign']
-                    
-        #             if len(attack_type_counts) > 0:
-        #                 top_attack = attack_type_counts.index[0]
-        #                 top_attack_count = attack_type_counts.iloc[0]
-                        
-        #                 # Percentuale sul totale degli attacchi
-        #                 top_attack_pct = (top_attack_count / len(attack_data)) * 100
-                        
-        #                 # Percentuale sul dataset totale
-        #                 top_attack_pct_total = (top_attack_count / len(data)) * 100
-                        
-        #                 # 🆕 Calcola "dominanza" (quanto è dominante l'attacco principale)
-        #                 dominance = top_attack_pct / 100  # 0-1, più alto = meno diversificato
-        #             else:
-        #                 top_attack = None
-        #                 top_attack_pct = 0
-        #                 top_attack_pct_total = 0
-        #                 dominance = 0
-        #         else:
-        #             top_attack = None
-        #             top_attack_pct = 0
-        #             top_attack_pct_total = 0
-        #             dominance = 0
-        #     else:
-        #         top_attack = 'N/A'
-        #         top_attack_pct = 0
-        #         top_attack_pct_total = 0
-        #         dominance = 0
-            
-        #     analysis_data.append({
-        #         'ip_address': ip,
-        #         'total_samples': len(data),
-        #         'benign_percentage': benign_pct,
-        #         'attack_percentage': attack_pct,
-        #         'top_attack_type': top_attack,
-        #         'top_attack_percentage': top_attack_pct,
-        #         'top_attack_pct_total': top_attack_pct_total,
-        #         'attack_dominance': dominance,  # 🆕 Nuova metrica
-        #     })
-        
-        # analysis_df = pd.DataFrame(analysis_data)
-        
-        # logger.info("\n" + "="*70)
-        # logger.info("📊 Analisi dei Non-IID:")
-        # logger.info(f"\n{analysis_df.to_string()}")
-        
-        # # 🆕 Calcola metriche aggregate
-        # attack_pct_variance = analysis_df['attack_percentage'].var()
-        # attack_pct_std = analysis_df['attack_percentage'].std()
-        # dominance_mean = analysis_df['attack_dominance'].mean()
-        
-        # non_iid_metrics = {
-        #     'attack_percentage_variance': attack_pct_variance,
-        #     'attack_percentage_std': attack_pct_std,
-        #     'average_attack_dominance': dominance_mean,
-        #     'num_hosts': len(analysis_df)
-        # }
-        
-        # logger.info(f"\n📈 Metriche Non-IID Aggregate:")
-        # logger.info(f"   • Varianza % attacchi: {attack_pct_variance:.2f} (più alta = più non-IID)")
-        # logger.info(f"   • Std Dev % attacchi: {attack_pct_std:.2f}")
-        # logger.info(f"   • Dominanza media attacco: {dominance_mean:.2f} (0=diversificato, 1=mono-attacco)")
-        
-        # return {
-        #     "non_iid_analysis": analysis_df,
-        #     "non_iid_metrics": non_iid_metrics  # 🆕aggiunte metriche su dati non-iid
-        # }
-        
-""" class AnalyzeNonIID(Step):
-    # 
-    # Analizza la natura non-IID dei set di dati federati.
-    # Quantifica le diverse distribuzioni dei dati tra gli host.
-    # 
-    
-    def __init__(
-        self,
-        label_col: str = 'Label',      # Colonna binaria: 0=Benign, 1=Attack
-        attack_col: str = 'Attack',      # Colonna con tipo di attacco
-        in_scope: str = "federated",
-        out_scope: str = "federated",
-        name: Optional[str] = None,
-    ):
-        self.label_col = label_col
-        self.attack_col = attack_col
-        
-        super().__init__(
-            name=name or "analyze_non_iid",
-            in_scope=in_scope,
-            out_scope=out_scope,
-        )
-    
-    @Step.requires(federated_datasets=dict)
-    @Step.provides(non_iid_analysis=pd.DataFrame)
-    def run(
-        self, 
-        state: State, 
-        federated_datasets: Dict[str, pd.DataFrame]
-    ) -> Optional[Dict[str, Any]]:
-        logger.info("Analizzando le caratteristiche non-IID...")
-        
-        analysis_data = []
-        
-        for ip, data in federated_datasets.items():
-            logger.info(f"\n🔍 DEBUG - Host {ip}:")
-            #logger.info(f"   Colonne disponibili: {data.columns.tolist()}")
-            logger.info(f"   label_col (Attack) - valori unici: {data[self.label_col].unique()}")
-            logger.info(f"   attack_col (Label) - valori unici: {data[self.attack_col].unique()[:10]}...")  # Prime 10
-            
-            # Conta benign/attack usando label_col = 'Attack' (0 = Benign, >0 = Attack)
-            label_counts = data[self.label_col].value_counts(normalize=True)
-            
-            logger.info(f"   label_counts (normalizzati): {dict(label_counts)}")
-            
-            benign_pct = label_counts.get(0, 0) * 100  # 0 = Benign
-            #attack_pct = (1 - label_counts.get(0, 0)) * 100  # tutto != 0 = Attack
-            attack_pct = label_counts.get(1, 0) * 100
-            
-            logger.info(f"   benign_pct: {benign_pct:.2f}%, attack_pct: {attack_pct:.2f}%")
-            
-            # Attack type analysis usando attack_col = 'Label'
-            if self.attack_col in data.columns:
-                # Filtra solo le righe di attacco (Attack != 0)
-                attack_data = data[data[self.label_col] != 0]
-                
-                logger.info(f"   Totale righe di attacco (Attack != 0): {len(attack_data)}")
-                
-                if len(attack_data) > 0:
-                    # Conta i tipi di attacco dalla colonna 'Label'
-                    attack_counts = attack_data[self.attack_col].value_counts()
-                    
-                    logger.info(f"   attack_counts (dalla colonna Label):")
-                    logger.info(f"{attack_counts}")
-                    
-                    # Trova l'attacco più comune (escludendo 'Benign' se presente)
-                    attack_counts_no_benign = attack_counts[attack_counts.index != 'Benign']
-                    
-                    logger.info(f"   attack_counts_no_benign (senza Benign):")
-                    logger.info(f"{attack_counts_no_benign}")
-                    
-                    if len(attack_counts_no_benign) > 0:
-                        top_attack = attack_counts_no_benign.index[0]
-                        top_attack_count = attack_counts_no_benign.iloc[0]
-                        
-                        logger.info(f"   top_attack: {top_attack}")
-                        logger.info(f"   top_attack_count: {top_attack_count}")
-                        logger.info(f"   len(attack_data): {len(attack_data)}")
-                        
-                        # Percentuale SUL TOTALE DEGLI ATTACCHI
-                        top_attack_pct = (top_attack_count / len(attack_data)) * 100
-                        
-                        # Percentuale sul dataset totale
-                        top_attack_pct_total = (top_attack_count / len(data)) * 100
-                        
-                        logger.info(f"   top_attack_pct (tra attacchi): {top_attack_pct:.2f}%")
-                        logger.info(f"   top_attack_pct_total (su tutto): {top_attack_pct_total:.2f}%")
-                    else:
-                        top_attack = None
-                        top_attack_pct = 0
-                        top_attack_pct_total = 0
-                       # logger.info("   Nessun attacco trovato dopo rimozione Benign")
-                else:
-                    top_attack = None
-                    top_attack_pct = 0
-                    top_attack_pct_total = 0
-                    #logger.info("   Nessuna riga di attacco trovata")
-            else:
-                #logger.warning(f"   Colonna {self.attack_col} non trovata!")
-                top_attack = 'N/A'
-                top_attack_pct = 0
-                top_attack_pct_total = 0
-            
-            analysis_data.append({
-                'ip_address': ip,
-                'total_samples': len(data),
-                'benign_percentage': benign_pct,
-                'attack_percentage': attack_pct,
-                'top_attack_type': top_attack,
-                'top_attack_percentage': top_attack_pct,
-                'top_attack_pct_total': top_attack_pct_total
-            })
-        
-        analysis_df = pd.DataFrame(analysis_data)
-        
-        logger.info("\n" + "="*70)
-        logger.info("Analisi dei Non-IID:")
-        logger.info(f"\n{analysis_df.to_string()}")
-        
-        # Calcola varianza in attack percentages (misura di non-IID)
-        variance = analysis_df['attack_percentage'].var()
-        logger.info(f"\nVarianza % di attacco: {variance:.2f} (più alta = più non-IID)")
-        
-        return {"non_iid_analysis": analysis_df} """
-
+ """
 # ============================================================================
 # STEP 5: APPLICAZIONE DELLA FIT_AWARE_PIPELINE PER OGNI HOST
 # ============================================================================
@@ -857,102 +802,6 @@ class ApplyFitAwareToFederatedSplits(Step):
             "federated_splits": transformed_splits,
             "transformation_errors": transformation_errors  # 🆕
         }
-
-"""class ApplyFitAwareToFederatedSplits(Step):
-    
-    Applica fit-aware transformations a ogni SPLIT di ogni host.
-    Fitta su TRAIN, applica su train/val/test.
-    
-    
-    def __init__(
-        self,
-        fit_aware_steps: List[Step],
-        in_scope: str = "federated",
-        out_scope: str = "federated",
-        name: Optional[str] = None,
-    ):
-        self.fit_aware_steps = fit_aware_steps
-        
-        super().__init__(
-            name=name or "apply_fit_aware_to_federated_splits",
-            in_scope=in_scope,
-            out_scope=out_scope,
-        )
-    
-    @Step.requires(federated_splits=dict, seed=int)
-    @Step.provides(federated_splits=dict)
-    def run(
-        self, 
-        state: State, 
-        federated_splits: Dict[str, Dict[str, pd.DataFrame]],
-        seed: int
-    ) -> Optional[Dict[str, Any]]:
-        logger.info("Applicando trasformazioni fit-aware su ogni split federato...")
-        
-        transformed_splits = {}
-        
-        for ip, splits in federated_splits.items():
-            logger.info(f"   🔧 Processing host {ip}...")
-            
-            # Combina train/val/test in un unico DataFrame mantenendo gli indici originali
-            train_df = splits['train'].copy()
-            val_df = splits['val'].copy()
-            test_df = splits['test'].copy()
-            
-            # Crea indici univoci per ogni partizione
-            train_df.index = pd.RangeIndex(0, len(train_df), name='index')
-            val_df.index = pd.RangeIndex(len(train_df), len(train_df) + len(val_df), name='index')
-            test_df.index = pd.RangeIndex(len(train_df) + len(val_df), 
-                                         len(train_df) + len(val_df) + len(test_df), 
-                                         name='index')
-            
-            # Combina tutti i dati
-            combined_df = pd.concat([train_df, val_df, test_df], ignore_index=False)
-            
-            # Suddivisione in partizioni 
-            partition_mapping = {
-                'train': train_df.index,
-                'val': val_df.index,
-                'test': test_df.index
-            }
-            combined_df.tab.set_partitions_from_labels(partition_mapping)
-            
-            # Crea state temporaneo
-            temp_state = State({
-                "data.root": combined_df,
-                "data.seed": seed
-            })
-            
-            # Crea pipeline fit-aware INDIPENDENTE per questo host
-            host_pipeline = FitAwareObservablePipeline(
-                steps=self.fit_aware_steps,
-                bus=EventBus(),
-                name=f"fit_aware_host_{ip.replace('.', '_')}"
-            )
-            
-            # Fit su TRAIN, applica su train/val/test
-            try:
-                host_pipeline.run(temp_state)
-            except Exception as e:
-                logger.error(f"Errore durante trasformazione host {ip}: {e}")
-                raise
-            
-            # Recupera i dati trasformati
-            transformed_df = temp_state.get("data.root", pd.DataFrame)
-            
-            # Ri-separa usando le partizioni
-            transformed_splits[ip] = {
-                'train': transformed_df.tab.train.reset_index(drop=True),
-                'val': transformed_df.tab.val.reset_index(drop=True),
-                'test': transformed_df.tab.test.reset_index(drop=True)
-            }
-            
-            logger.info(f"      ✅ Host {ip}: train={len(transformed_splits[ip]['train'])}, "
-                       f"val={len(transformed_splits[ip]['val'])}, test={len(transformed_splits[ip]['test'])}")
-        
-        logger.info("✅ Tutti i dataset federati trasformati con successo!")
-        
-        return {"federated_splits": transformed_splits}"""
 
 # ============================================================================
 # STEP 6: CREO UN TEST SET AGGREGATO GLOBALE

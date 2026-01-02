@@ -125,6 +125,13 @@ class TabularClassifier(MLPClassifier):
         cat_emb = self.embedding(x_cat)
         combined = torch.cat((x_num, cat_emb), dim=1)
 
+        # --- DEBUG PRINT ---
+        # Frank Diesis dice: stampiamo cosa sta succedendo
+        # print(f"DEBUG: Shape di combined: {combined.shape}")
+        # print(f"DEBUG: Il modello si aspetta: {self.feature_extractor.net[0].in_features}")
+        # -------------------
+
+
         latents = self.feature_extractor(combined)
         logits = self.classifier_head(latents)
 

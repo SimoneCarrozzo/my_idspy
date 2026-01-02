@@ -6,11 +6,11 @@ import pandas as pd
 import logging
 from src.idspy.events.handlers.logging import Logger
 
-from ...core.step import Step
-from ...core.state import State
-from ...data.repository import DataFrameRepository
-from ...nn.models.base import BaseModel
-from ...nn.checkpoints import save_weights, save_checkpoint
+from src.idspy.core.step import Step
+from src.idspy.core.state import State
+from src.idspy.data.repository import DataFrameRepository
+from src.idspy.nn.models.base import BaseModel
+from src.idspy.nn.checkpoints import save_weights, save_checkpoint
 
 
 class SaveFederatedData(Step):
@@ -224,31 +224,3 @@ class SaveFederatedData(Step):
         
         # 🆕 Ritorna le statistiche nello state
         return {"save_statistics": save_stats}
-
-
-
-
-
-
-
-# class SaveModel(Step):
-#     """Save model from state."""
-
-#     def __init__(
-#         self,
-#         path_out: Union[str, Path],
-#         in_scope: Optional[str] = None,
-#         name: Optional[str] = None,
-#         **kwargs: Any,
-#     ) -> None:
-#         self.path_out: Path = Path(path_out)
-#         self.kwargs = kwargs
-
-#         super().__init__(
-#             name=name or "save_model",
-#             in_scope=in_scope,
-#         )
-
-#     @Step.requires(model=BaseModel)
-#     def run(self, state: State, model: BaseModel) -> None:
-#         save_weights(model, self.path_out, **self.kwargs)
