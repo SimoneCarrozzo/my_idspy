@@ -39,6 +39,18 @@ class ComputeGlobalNormalizationStats(Step):
         exclude_cols = ['Attack', 'Label', 'L4_SRC_PORT', 'L4_DST_PORT'] ##########AGGIUNTO LABEL
         numerical_cols = [c for c in numerical_cols if c not in exclude_cols]
         
+        ###############INIZIO MODIFICA########################
+        # 🆕 Escludi anche colonne OVR (devono rimanere binarie!)
+        ovr_cols = [c for c in numerical_cols if c.startswith('is_')]
+        exclude_cols.extend(ovr_cols)
+
+        numerical_cols = [c for c in numerical_cols if c not in exclude_cols]
+
+        # 🆕 Log per debug
+        if ovr_cols:
+            self.logger.info(f"🚫 Colonne OVR escluse dalla normalizzazione: {ovr_cols}")
+        
+        ################FINE MODIFICA#######################
         if len(numerical_cols) == 0:
             self.logger.warning("No numerical columns to normalize!")
             state.set("global_norm_stats", None)

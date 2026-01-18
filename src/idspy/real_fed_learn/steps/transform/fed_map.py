@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -10,84 +10,6 @@ from src.idspy.data.tab_accessor import PartitionName   #per definire tipi di da
 from src.idspy.core.step import FitAwareStep, Step
 from src.idspy.core.state import State
 import logging
-
-
-
-class LabelMap1(FitAwareStep):
-    """Encode `target`: binary with `benign_tag`, else ordinal categories."""
-    
-    def __init__(
-        self,
-        benign_tag: Optional[str] = None,
-        default: int = -1,
-        in_scope: str = "data",
-        out_scope: str = "data",
-        name: Optional[str] = None,
-    ) -> None:
-        self.benign_tag = benign_tag
-        self.default = default
-        self.cat_types: Optional[CategoricalDtype] = None
-
-        super().__init__(
-            name=name or "target_map",
-            in_scope=in_scope,
-            out_scope=out_scope,
-        )
-        
-        self.logger = logging.getLogger(__name__)
-
-    @Step.requires(root=pd.DataFrame)
-    def fit_impl(self, state: State, root: pd.DataFrame) -> None:
-        #Learn ordered categories for the target col (if not binary).
-        # Early exit for binary case
-        if self.benign_tag is not None:
-            self.cat_types = None
-            return
-
-        train_df = root.tab.train
-        tgt_col = train_df.tab.schema.target
-
-        vc = train_df[tgt_col].value_counts(dropna=False)
-        self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
-       
-    @Step.requires(root=pd.DataFrame)
-    @Step.provides(root=pd.DataFrame, target_mapping=CategoricalDtype | None)
-    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
-        tgt_col = root.tab.schema.target
-
-        prev = root[tgt_col].copy()
-
-        if self.benign_tag is not None: 
-            tgt = (prev == self.benign_tag).astype("int32")
-            tgt = tgt.where(tgt == 0, 1)
-            
-        else:
-            s = prev.astype(self.cat_types)
-            codes = s.cat.codes
-            tgt = pd.Series(            #codes + 1
-                np.where(codes != -1, codes+1, 0).astype("int32"),
-                index=s.index,
-                name=tgt_col,
-            )   
-            # ⭐ LOG quante label sono unseen (ma NON dropparle)
-            unseen_count = (codes == -1).sum()
-            if unseen_count > 0:
-                logger.warning(
-                    f"⚠️ LabelMap: {unseen_count} label unseen, mappati a classe 0 (fallback)"
-                )
-            # # ⭐ AGGIUNGI QUESTO: 
-            # unseen_count = (tgt == self.default).sum()
-            # if unseen_count > 0:
-            #     logger.warning(f"⚠️ LabelMap: {unseen_count} label unseen (default={self.default}), rimozione...")
-            #     # Droppa righe con label unseen
-            #     mask = tgt != self.default
-            #     root = root[mask].copy()
-            #     tgt = tgt[mask].copy()
-        root[f"original_{tgt_col}"] = prev
-        root.tab.target = tgt
-        return {"root": root, "target_mapping": self.cat_types}
-
-
 
 class FrequencyMapGlobal(FitAwareStep):
     """Mappa le colonne categoriali in base alla frequenza globale, senza richiedere split."""
@@ -154,10 +76,14 @@ class LabelMapGlobal(FitAwareStep):
         in_scope: str = "data",
         out_scope: str = "data",
         name: Optional[str] = None,
+        # mapping_output_path: Optional[str] = None  # 🆕
     ) -> None:
         self.benign_tag = benign_tag
         self.default = default
         self.cat_types: Optional[CategoricalDtype] = None
+
+        # self.mapping_output_path = mapping_output_path #new
+
         super().__init__(
             name=name or "label_map_global",
             in_scope=in_scope,
@@ -174,54 +100,132 @@ class LabelMapGlobal(FitAwareStep):
         # Recupera il nome della colonna target dallo schema
         tgt_col = root.tab.schema.target
         vc = root[tgt_col].value_counts(dropna=False)
+        # Creiamo il tipo categorico ordinato per frequenza
         self.cat_types = CategoricalDtype(categories=vc.index.tolist(), ordered=True)
         self.logger.info(f"✅ LabelMapGlobal: fittata colonna target '{tgt_col}' con {len(vc)} classi.")
+        
+        
     
     @Step.requires(root=pd.DataFrame)
-    @Step.provides(root=pd.DataFrame, target_mapping=Optional[CategoricalDtype])
+    # @Step.provides(root=pd.DataFrame, target_mapping=Optional[CategoricalDtype])
+    @Step.provides(root=pd.DataFrame, 
+                   target_mapping=Optional[CategoricalDtype],
+                   training_label_map=dict, #dizionario per training binario federato
+                   original_label_map=dict  #dizionario per visualizzazione mapping originale
+                   )
     def run(self, state: State, root: pd.DataFrame) -> Dict[str, Any]:
         tgt_col = root.tab.schema.target
         prev = root[tgt_col].copy()
 
+        # 🆕 Dizionario per training (binario o multi-classe)
+        training_label_map_dict = {}
+        
+        # 🆕 Dizionario ORIGINALE (tutti gli attacchi)
+        original_label_map_dict = {}
+
         if self.benign_tag is not None: 
-            # 🎯 FORZATURA BINARIA: 
-            # Se è uguale al tag benigno -> 0
-            # Altrimenti (qualsiasi altra cosa) -> 1
+            
+            # 1️⃣ Crea il mapping ORIGINALE (tutti gli attacchi)
+            unique_labels = prev.astype(str).unique()
+            for idx, label in enumerate(sorted(unique_labels)):
+                original_label_map_dict[label] = idx
+            
+            # 2️⃣ Crea il mapping per TRAINING (binario)
+            training_label_map_dict = {
+                str(self.benign_tag): 0,
+                "Attacks": 1
+            }
+            
+            # 3️⃣ Trasforma i target per training (binario) # Se è uguale al tag benigno -> 0, Altrimenti (qualsiasi altra cosa) -> 1
             tgt = np.where(prev.astype(str) == str(self.benign_tag), 0, 1).astype("int32")
+            
             self.logger.info(f"✅ LabelMapGlobal (Binary): {self.benign_tag} -> 0, Others -> 1")
+            self.logger.info(f"   • Original labels preserved: {len(original_label_map_dict)} classi")
+
         else:
             # Logica Multi-classe (ordinal)
             s = prev.astype(self.cat_types)
             codes = s.cat.codes
+            # Applichiamo lo shift +1 (0 è riservato al default/unknown)
             tgt = np.where(codes != -1, codes + 1, self.default).astype("int32")
+            
+            # Creiamo il dizionario esplicito che riflette ESATTAMENTE questo shift
+            # In questo caso, training = original
+            training_label_map_dict["Unknown/Default"] = self.default
+            for idx, name in enumerate(self.cat_types.categories):
+                training_label_map_dict[str(name)] = int(idx + 1)
+            
+            original_label_map_dict = training_label_map_dict.copy()
+        
         ############
         self.logger.debug(f"Nome Colonna tgt_col: {tgt_col}")
+        
         ###########
         root[f"original_{tgt_col}"] = prev
         # Molto importante: aggiorniamo la colonna target effettiva
         root[tgt_col] = tgt 
         root.tab.target = root[tgt_col] 
         
-        return {"root": root, "target_mapping": self.cat_types}   
-    """ @Step.requires(root=pd.DataFrame)
-    @Step.provides(root=pd.DataFrame, target_mapping=Optional[CategoricalDtype])
+        return {"root": root, 
+                "target_mapping": self.cat_types,
+                "training_label_map": training_label_map_dict, # NUOVO: passiamo i dizionari training e original
+                "original_label_map": original_label_map_dict}  
+#======================================
+#======================================
+#======================================
+class CreateOneVsRestLabels(Step):
+    """
+    Crea colonne binarie One-vs-Rest per ogni tipo di attacco.
+    Esempio: is_ddos=1 se attacco è DDoS, altrimenti 0
+    """
+    
+    def __init__(
+        self,
+        attack_types: List[str] = None,  # ["DDoS", "DoS", "Bot", "Infiltration"]
+        original_col: str = "original_Attack",
+        in_scope: str = "data",
+        out_scope: str = "data",
+        name: Optional[str] = None,
+    ):
+        self.attack_types = attack_types or [
+            "DDOS attack-HOIC",  # Nome ESATTO dal tuo dataset
+            "DoS attacks-Hulk",
+            "Bot", 
+            "Infilteration",  # Nota: c'è un typo nel dataset
+            "DDOS attacks-LOIC-HTTP",
+            "DDOS attack-LOIC-UDP",
+            "DoS attacks-GoldenEye"
+        ]
+        self.original_col = original_col
+        
+        super().__init__(
+            name=name or "create_ovr_labels",
+            in_scope=in_scope,
+            out_scope=out_scope,
+        )
+        self.logger = logging.getLogger(__name__)
+    
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(root=pd.DataFrame, ovr_columns=list)
     def run(self, state: State, root: pd.DataFrame) -> Dict[str, Any]:
-        tgt_col = root.tab.schema.target
-        prev = root[tgt_col].copy()
-
-        if self.benign_tag is not None: 
-            # Logica binaria: benigno vs tutto il resto
-            # tgt = (prev == self.benign_tag).map({True: 0, False: 1}).astype("int32")
-            tgt = np.where(prev == self.benign_tag, 0, 1).astype("int32")
-        else:
-            s = prev.astype(self.cat_types)
-            codes = s.cat.codes
-            tgt = np.where(codes != -1, codes + 1, self.default).astype("int32")
+        
+        if self.original_col not in root.columns:
+            raise ValueError(f"Colonna {self.original_col} non trovata!")
+        
+        ovr_cols = []
+        
+        for attack in self.attack_types:
+            # Crea nome colonna pulito (es: "DDOS attack-HOIC" → "is_ddos")
+            col_name = f"is_{attack.lower().replace(' ', '_').replace('-', '_')}"
             
-            unseen_count = (codes == -1).sum()
-            if unseen_count > 0:
-                self.logger.warning(f"⚠️ LabelMapGlobal: {unseen_count} label unseen mappati a {self.default}")
-
-        root[f"original_{tgt_col}"] = prev
-        root.tab.target = pd.Series(tgt, index=root.index, name=tgt_col)
-        return {"root": root, "target_mapping": self.cat_types} """
+            # Crea colonna binaria
+            root[col_name] = (root[self.original_col].astype(str) == attack).astype(np.int32)
+            
+            count = root[col_name].sum()
+            ovr_cols.append(col_name)
+            
+            self.logger.info(f"✅ Creata colonna '{col_name}': {count} samples positivi")
+        
+        self.logger.info(f"✅ Totale colonne One-vs-Rest create: {len(ovr_cols)}")
+        
+        return {"root": root, "ovr_columns": ovr_cols}

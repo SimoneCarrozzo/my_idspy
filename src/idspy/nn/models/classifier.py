@@ -40,7 +40,10 @@ class MLPClassifier(BaseModel):
         )
 
         # Classification head
-        self.classifier_head = nn.Linear(feat_dim, num_classes, bias=bias)
+        # self.classifier_head = nn.Linear(feat_dim, num_classes, bias=bias) modificato come segue per comportamento binario
+        # Classification head (1 neurone per binary, altrimenti num_classes)
+        output_dim = 1 if num_classes == 2 else num_classes
+        self.classifier_head = nn.Linear(feat_dim, output_dim, bias=bias)
 
     def forward(self, x: torch.Tensor) -> ModelOutput:
         """Forward pass.
@@ -56,9 +59,19 @@ class MLPClassifier(BaseModel):
         if x.dim() != 2:
             raise ValueError("Expected 2D tensor [batch_size, features]")
 
+        """ latents = self.feature_extractor(x)
+        logits = self.classifier_head(latents)
+        return ModelOutput(logits=logits, latents=latents)--- MODIFICATO COME SEGUE PER COMPORTAMENTO BINARIO """
         latents = self.feature_extractor(x)
         logits = self.classifier_head(latents)
+
+        # 🆕 Squeeze per binary: (batch, 1) → (batch,)
+        if logits.shape[-1] == 1:
+            logits = logits.squeeze(-1)
+
         return ModelOutput(logits=logits, latents=latents)
+        
+        
 
     def for_loss(
         self,
@@ -126,15 +139,21 @@ class TabularClassifier(MLPClassifier):
         combined = torch.cat((x_num, cat_emb), dim=1)
 
         # --- DEBUG PRINT ---
-        # Frank Diesis dice: stampiamo cosa sta succedendo
         # print(f"DEBUG: Shape di combined: {combined.shape}")
         # print(f"DEBUG: Il modello si aspetta: {self.feature_extractor.net[0].in_features}")
         # -------------------
 
-
+        """
         latents = self.feature_extractor(combined)
         logits = self.classifier_head(latents)
-
+        return ModelOutput(logits=logits, latents=latents) --- MODIFICATO COME SEGUE PER COMPORTAMENTO BINARIO 
+        """
+        latents = self.feature_extractor(combined)
+        logits = self.classifier_head(latents)
+        # 🆕 Squeeze per binary: (batch, 1) → (batch,)
+        if logits.shape[-1] == 1:
+            logits = logits.squeeze(-1)
+        
         return ModelOutput(logits=logits, latents=latents)
 
     def for_loss(

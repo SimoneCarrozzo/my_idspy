@@ -379,23 +379,6 @@ class AnalyzeNonIID(Step):
         state: State, 
         federated_datasets: Dict[str, pd.DataFrame]
     ) -> Optional[Dict[str, Any]]:
-        # --- DEBUG AREA ---
-        # cat_mapping = state.get("data.cat_mapping", dict) if state.has("data.cat_mapping") else {}
-        # logger.info("================ ISPEZIONE MAPPING ================")
-        # logger.info(f"Keys presenti in cat_mapping: {list(cat_mapping.keys())}")
-        
-        # target_col = 'Label' # O il nome della tua colonna attacchi
-        # if target_col in cat_mapping:
-        #     mapping_obj = cat_mapping[target_col]
-        #     logger.info(f"Tipo oggetto mapping per '{target_col}': {type(mapping_obj)}")
-        #     logger.info(f"Contenuto (prime voci): {str(mapping_obj)[:500]}") # Stampa i primi caratteri
-            
-        #     if hasattr(mapping_obj, 'categories'):
-        #          logger.info(f"Categories trovate: {mapping_obj.categories}")
-        # else:
-        #     logger.info(f"ATTENZIONE: Nessun mapping trovato per la colonna '{target_col}'")
-        # logger.info("===================================================")
-        # ---------------------------
         logger.info("Analizzando le caratteristiche non-IID (con recupero nomi originali)...")
         
         # Tentativo di recuperare il mapping (serve solo se non troviamo la colonna original)
@@ -414,10 +397,21 @@ class AnalyzeNonIID(Step):
             attack_pct = label_counts.get(1, 0.0) * 100
             
             # 2. Analisi Tipo di Attacco
-            top_attack_name = "None"
+            """ top_attack_name = "NO ATTACK"
             top_attack_pct = 0.0
+            dominance = 0.0 """
+            # Inizializza SEMPRE per ogni host
+            top_attack_name = "NO ATTACK"
+            top_attack_pct = 0.0
+            snd_attack_name = "NO ATTACK"
+            snd_attack_pct = 0.0
+            trd_attack_name = "NO ATTACK"
+            trd_attack_pct = 0.0
+            frt_attack_name = "NO ATTACK"
+            frt_attack_pct = 0.0
+            fifth_attack_name = "NO ATTACK"
+            fifth_attack_pct = 0.0
             dominance = 0.0
-            
             # Filtriamo solo le righe che sono ATTACCHI
             # Assumiamo che 1 = Attack nella colonna label_col
             attack_mask = data[self.label_col] == 1
@@ -449,96 +443,94 @@ class AnalyzeNonIID(Step):
                 type_counts = attack_data[target_col_name].value_counts()
                 
                 if len(type_counts) > 0:
-                    top_val = type_counts.index[0]
-                    count = type_counts.iloc[0]
-                    
-                    top_attack_pct = (count / len(attack_data)) * 100
-                    dominance = top_attack_pct / 100
-                    
-                    # Se è un numero, proviamo a usare il mapping dello stato
-                    if isinstance(top_val, (int, float, np.integer)):
-                        # Cerchiamo il mapping per 'Label' o 'Attack'
-                        mapping = None
-                        if self.attack_type_col in cat_mapping:
-                            mapping = cat_mapping[self.attack_type_col]
-                        elif 'Label' in cat_mapping:
-                            mapping = cat_mapping['Label']
-                        elif 'Attack' in cat_mapping:
-                            mapping = cat_mapping['Attack']
-                        
-                        if mapping is not None and hasattr(mapping, 'categories'):
-                            try:
-                                cats = mapping.categories
-                                idx = int(top_val)
-                                # Spesso i codici sono 1-based se 0 è riservato
-                                if 1 <= idx <= len(cats):
-                                    top_attack_name = str(cats[idx-1])
-                                elif 0 <= idx < len(cats):
-                                    top_attack_name = str(cats[idx])
-                                else:
-                                    top_attack_name = f"Code_{top_val}"
-                            except:
-                                top_attack_name = f"Code_{top_val}"
-                        else:
-                            top_attack_name = f"Code_{top_val}"
-                    else:
-                        # È UNA STRINGA! Vittoria.
-                        top_attack_name = str(top_val)
-            """ if len(attack_data) > 0:
-                # 🔥 IL PUNTO CRUCIALE: Cerchiamo la colonna con i NOMI veri
-                # LabelMapGlobal crea "original_Label" (o "original_Attack")
-                possible_cols = [
-                    f"original_{self.attack_type_col}", # Priorità 1: Backup creato da LabelMap
-                    self.attack_type_col,               # Priorità 2: Colonna standard
-                    "original_Label",                   # Fallback esplicito
-                    "original_label",                   # Fallback esplicito
-                    "original_Attack",                   # Fallback esplicito
-                    "Label",
-                    "Attack"
-                ]
-                
-                target_col_name = None
-                for col in possible_cols:
-                    if col in attack_data.columns:
-                        target_col_name = col
-                        break
-                
-                if target_col_name:
-                    if self.debug and ip == list(federated_datasets.keys())[0]:
-                        logger.info(f"🔍 Host {ip}: Uso colonna '{target_col_name}' per identificare i tipi di attacco.")
-
-                    # Conteggio valori
-                    type_counts = attack_data[target_col_name].value_counts()
-                    
-                    if len(type_counts) > 0:
-                        top_val = type_counts.index[0] # Questo sarà la stringa "DoS" se usiamo original_!
-                        count = type_counts.iloc[0]
-                        
-                        top_attack_pct = (count / len(attack_data)) * 100
-                        dominance = top_attack_pct / 100
-                        
-                        # Se il valore è ancora un numero (perché non abbiamo trovato original_), proviamo a decodificare
-                        if isinstance(top_val, (int, float, np.number)):
-                            # Qui entra in gioco il mapping solo se necessario
-                            if self.attack_type_col in cat_mapping and hasattr(cat_mapping[self.attack_type_col], 'categories'):
+                    # 🆕 HELPER FUNCTION per convertire codice → nome
+                    def get_attack_name(value):
+                        """Converte un valore (int/string) nel nome dell'attacco."""
+                        if isinstance(value, (int, float, np.integer)):
+                            # È un codice numerico, cerchiamo il mapping
+                            mapping = None
+                            if self.attack_type_col in cat_mapping:
+                                mapping = cat_mapping[self.attack_type_col]
+                            elif 'Label' in cat_mapping:
+                                mapping = cat_mapping['Label']
+                            elif 'Attack' in cat_mapping:
+                                mapping = cat_mapping['Attack']
+                            
+                            if mapping is not None and hasattr(mapping, 'categories'):
                                 try:
-                                    cats = cat_mapping[self.attack_type_col].categories
-                                    # Gestione indice 0-based vs 1-based
-                                    idx = int(top_val)
-                                    if 0 <= idx < len(cats):
-                                        top_attack_name = str(cats[idx])
-                                    elif 0 <= (idx - 1) < len(cats):
-                                         top_attack_name = str(cats[idx-1])
+                                    cats = mapping.categories
+                                    idx = int(value)
+                                    # Spesso i codici sono 1-based se 0 è riservato
+                                    if 1 <= idx <= len(cats):
+                                        return str(cats[idx-1])
+                                    elif 0 <= idx < len(cats):
+                                        return str(cats[idx])
                                     else:
-                                        top_attack_name = f"Code_{top_val}"
+                                        return f"Code_{value}"
                                 except:
-                                    top_attack_name = f"Code_{top_val}"
+                                    return f"Code_{value}"
                             else:
-                                top_attack_name = f"Code_{top_val}"
+                                return f"Code_{value}"
                         else:
-                            # È già una stringa! (Caso original_Label)
-                            top_attack_name = str(top_val)
-             """
+                            # È già una stringa
+                            return str(value)
+                    
+                    # ─────────────────────────────────────────────────────────────
+                    # 🥇 TOP 1 (quello che già avevi)
+                    # ─────────────────────────────────────────────────────────────
+                    top_val = type_counts.index[0]
+                    top_count = type_counts.iloc[0]
+                    top_attack_pct = (top_count / len(attack_data)) * 100
+                    dominance = top_attack_pct / 100
+                    top_attack_name = get_attack_name(top_val)
+                    
+                    # ─────────────────────────────────────────────────────────────
+                    # 🥈 TOP 2 (NUOVO)
+                    # ─────────────────────────────────────────────────────────────
+                    snd_attack_name = "NO ATTACK"
+                    snd_attack_pct = 0.0
+                    
+                    if len(type_counts) >= 2:
+                        snd_val = type_counts.index[1]
+                        snd_count = type_counts.iloc[1]
+                        snd_attack_pct = (snd_count / len(attack_data)) * 100
+                        snd_attack_name = get_attack_name(snd_val)
+                    
+                    # ─────────────────────────────────────────────────────────────
+                    # 🥉 TOP 3 (NUOVO)
+                    # ─────────────────────────────────────────────────────────────
+                    trd_attack_name = "NO ATTACK"
+                    trd_attack_pct = 0.0
+                    
+                    if len(type_counts) >= 3:
+                        trd_val = type_counts.index[2]
+                        trd_count = type_counts.iloc[2]
+                        trd_attack_pct = (trd_count / len(attack_data)) * 100
+                        trd_attack_name = get_attack_name(trd_val)
+                    # ─────────────────────────────────────────────────────────────
+                    # 🥉 TOP 4 (NUOVO)
+                    # ─────────────────────────────────────────────────────────────
+                    frt_attack_name = "NO ATTACK"
+                    frt_attack_pct = 0.0
+                    
+                    if len(type_counts) >= 4:
+                        frt_val = type_counts.index[3]
+                        frt_count = type_counts.iloc[3]
+                        frt_attack_pct = (frt_count / len(attack_data)) * 100
+                        frt_attack_name = get_attack_name(frt_val)
+                    # ─────────────────────────────────────────────────────────────
+                    # 🥉 TOP 5 (NUOVO)
+                    # ─────────────────────────────────────────────────────────────
+                    fifth_attack_name = "NO ATTACK"
+                    fifth_attack_pct = 0.0
+                    
+                    if len(type_counts) >= 5:
+                        fifth_val = type_counts.index[4]
+                        fifth_count = type_counts.iloc[4]
+                        fifth_attack_pct = (fifth_count / len(attack_data)) * 100
+                        fifth_attack_name = get_attack_name(fifth_val)
+                        
+            
             analysis_data.append({
                 'ip_address': ip,
                 'total_samples': len(data),
@@ -546,6 +538,14 @@ class AnalyzeNonIID(Step):
                 'attack_percentage': attack_pct,
                 'top_attack_type': top_attack_name,
                 'top_attack_percentage': top_attack_pct,
+                'snd_attack_type': snd_attack_name,        # 🆕
+                'snd_attack_percentage': snd_attack_pct,   # 🆕
+                'trd_attack_type': trd_attack_name,        # 🆕
+                'trd_attack_percentage': trd_attack_pct,   # 🆕
+                'frt_attack_type': frt_attack_name,        # 🆕
+                'frt_attack_percentage': frt_attack_pct,   # 🆕
+                'fifth_attack_type': fifth_attack_name,        # 🆕
+                'fifth_attack_percentage': fifth_attack_pct,   # 🆕
                 'attack_dominance': dominance,
             })
         
@@ -554,6 +554,23 @@ class AnalyzeNonIID(Step):
         logger.info("\n" + "="*70)
         logger.info("📊 Analisi Non-IID:")
         logger.info(f"\n{analysis_df.to_string()}")
+        
+        #======MODIFICA============#
+        logger.info("\n" + "="*70)
+        logger.info("🎯 SPECIALIZZAZIONE AUTOMATICA DEI CLIENT:")
+        logger.info("="*70)
+
+        ovr_cols = ['is_ddos_attack_hoic', 'is_dos_attacks_hulk', 'is_bot', 'is_infilteration', 'is_ddos_attacks_loic_http']
+        for ip, data in federated_datasets.items():
+            # attack_counts = {col: data[col].sum() for col in ovr_cols if col in data.columns}
+            attack_counts = {col: int(data[col].sum()) for col in ovr_cols if col in data.columns}
+
+            if sum(attack_counts.values()) > 0:
+                dominant = max(attack_counts, key=attack_counts.get)
+                logger.info(f"   • {ip} → {dominant} ({attack_counts[dominant]} samples)")
+            else:
+                logger.info(f"   • {ip} → SKIP (solo benigno)")
+        #======FINE MODIFICA============#
         
         # Metriche
         top_attacks = analysis_df['top_attack_type'].value_counts().to_dict()
@@ -568,110 +585,7 @@ class AnalyzeNonIID(Step):
         return {
             "non_iid_analysis": analysis_df,
             "non_iid_metrics": non_iid_metrics
-        }        
-""" @Step.requires(federated_datasets=dict)
-    @Step.provides(non_iid_analysis=pd.DataFrame, non_iid_metrics=dict)  # 🆕 Aggiungo metrics
-    def run(
-        self, 
-        state: State, 
-        federated_datasets: Dict[str, pd.DataFrame]
-    ) -> Optional[Dict[str, Any]]:
-        logger.info("Analizzando le caratteristiche non-IID...")
-        
-        analysis_data = []
-        
-        for ip, data in federated_datasets.items():
-            if self.debug:
-                logger.info(f"\n🔍 DEBUG - Host {ip}:")
-                logger.info(f"   Label column: {self.label_col}")
-                logger.info(f"   Unique labels: {data[self.label_col].unique()[:10]}")
-            
-            # 🆕 CORRETTO: Conta usando STRINGHE, non numeri!
-            label_counts = data[self.label_col].value_counts(normalize=True)
-            
-            # 🆕 Benign percentage usando il nome della classe
-            # benign_pct = label_counts.get(self.benign_label, 0) * 100
-            benign_pct = label_counts.get(0, 0) * 100
-            
-            # 🆕 Attack percentage = tutto tranne Benign
-            # attack_pct = (1 - label_counts.get(self.benign_label, 0)) * 100
-            attack_pct = label_counts.get(1, 0) * 100
-            
-            if self.debug:
-                logger.info(f"   Benign %: {benign_pct:.2f}")
-                logger.info(f"   Attack %: {attack_pct:.2f}")
-            
-            # 🆕 Attack type analysis (filtra Benign)
-            attack_data = data[data[self.label_col] != self.benign_label] 
-            if len(attack_data) > 0:
-                attack_type_counts = attack_data[self.label_col].value_counts()
-                
-                if len(attack_type_counts) > 0:
-                    top_attack = attack_type_counts.index[0]  # Nome dell'attacco
-                    top_attack_count = attack_type_counts.iloc[0]
-                    
-                    # Percentuale SUL TOTALE DEGLI ATTACCHI
-                    top_attack_pct = (top_attack_count / len(attack_data)) * 100
-                    
-                    # 🆕 Dominanza: quanto è dominante l'attacco principale
-                    dominance = top_attack_pct / 100  # 0-1
-                    
-                    if self.debug:
-                        logger.info(f"   Top attack: {top_attack}")
-                        logger.info(f"   Top attack %: {top_attack_pct:.2f}")
-                        logger.info(f"   Dominance: {dominance:.2f}")
-                else:
-                    top_attack = None
-                    top_attack_pct = 0
-                    dominance = 0
-            else:
-                top_attack = None
-                top_attack_pct = 0
-                dominance = 0  
-            
-            analysis_data.append({
-                'ip_address': ip,
-                'total_samples': len(data),
-                'benign_percentage': benign_pct,
-                'attack_percentage': attack_pct,
-                'top_attack_type': top_attack,
-                'top_attack_percentage': top_attack_pct,
-                'attack_dominance': dominance,
-            })
-        
-        analysis_df = pd.DataFrame(analysis_data)
-        
-        logger.info("\n" + "="*70)
-        logger.info("📊 Analisi Non-IID:")
-        logger.info(f"\n{analysis_df.to_string()}")
-        
-        # Calcola metriche aggregate
-        attack_pct_variance = analysis_df['attack_percentage'].var()
-        attack_pct_std = analysis_df['attack_percentage'].std()
-        dominance_mean = analysis_df['attack_dominance'].mean()
-        
-        # 🆕 Aggiungi distribuzione attacchi più comuni
-        top_attacks = analysis_df['top_attack_type'].value_counts().to_dict()
-        
-        non_iid_metrics = {
-            'attack_percentage_variance': attack_pct_variance,
-            'attack_percentage_std': attack_pct_std,
-            'average_attack_dominance': dominance_mean,
-            'num_hosts': len(analysis_df),
-            'top_attacks_distribution': top_attacks  # 🆕
         }
-        
-        logger.info(f"\n📈 Metriche Non-IID Aggregate:")
-        logger.info(f"   • Varianza % attacchi: {attack_pct_variance:.2f} (più alta = più non-IID)")
-        logger.info(f"   • Std Dev % attacchi: {attack_pct_std:.2f}")
-        logger.info(f"   • Dominanza media attacco: {dominance_mean:.2f} (0=diversificato, 1=mono-attacco)")
-        logger.info(f"   • Attacchi più comuni: {top_attacks}")
-        
-        return {
-            "non_iid_analysis": analysis_df,
-            "non_iid_metrics": non_iid_metrics
-        }
- """
 # ============================================================================
 # STEP 5: APPLICAZIONE DELLA FIT_AWARE_PIPELINE PER OGNI HOST
 # ============================================================================

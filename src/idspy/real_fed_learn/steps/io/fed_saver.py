@@ -47,7 +47,9 @@ class SaveFederatedData(Step):
                    test_host_mapping=pd.DataFrame,
                    non_iid_analysis=pd.DataFrame,  # 🆕 Aggiungiamo anche questa!
                    non_iid_metrics=dict,  # 🆕
-                   ip_statistics=pd.DataFrame    # 🆕 Top hosts stats
+                   ip_statistics=pd.DataFrame,    # 🆕 Top hosts stats
+                   training_label_map=dict, #NUOVO
+                   original_label_map=dict #NUOVO
     ) #AGGIUNTO test_host_mapping
     def run(
         self, 
@@ -57,7 +59,9 @@ class SaveFederatedData(Step):
         test_host_mapping: pd.DataFrame,     #AGGIUNTO
         non_iid_analysis: pd.DataFrame,  # 🆕
         non_iid_metrics: dict,  # 🆕
-        ip_statistics: pd.DataFrame    # 🆕 Top hosts stats
+        ip_statistics: pd.DataFrame,    # 🆕 Top hosts stats
+        training_label_map=dict, #NUOVO
+        original_label_map=dict #NUOVO
     ) -> Optional[Dict[str, Any]]:
         """
         Salva i dataset federati seguendo la struttura:
@@ -219,6 +223,80 @@ class SaveFederatedData(Step):
                 logger.info(f"✅ Statistiche salvate in {stats_file}")
             except Exception as e:
                 logger.warning(f"⚠️ Impossibile salvare statistiche: {e}")
+                
+        # 🆕 Salva metadata con label mapping
+        if training_label_map is not None and original_label_map is not None:
+
+            try:
+                import json
+                
+                # Prendi un sample per feature names
+                first_host = next(iter(federated_splits.values()))
+                sample_df = first_host['train']
+                
+                training_label_map = state.get("data.training_label_map", dict)
+                original_label_map = state.get("data.original_label_map", dict)
+                
+                metadata = {
+                    'training_label_map': training_label_map,        # 🆕 Per training (binario)
+                    'original_label_map': original_label_map,        # 🆕 Per visualizzazione (completo)
+                    'num_training_classes': len(training_label_map),
+                    'num_original_classes': len(original_label_map),
+                    'feature_names': [col for col in sample_df.columns if col != 'Attack'],
+                    'num_features': len(sample_df.columns) - 1,
+                    'num_hosts': len(federated_splits),
+                }
+                #======MODIFICATO============#
+                # Calcola attacco dominante per ogni host DDoS attacks-LOIC-HTTP
+                host_specialization = {}
+                ovr_columns = ['is_ddos_attack_hoic', 'is_dos_attacks_hulk', 'is_bot', 'is_infilteration', 'is_ddos_attacks_loic_http', 'is_ddos_attack_loic_udp', 'is_dos_attacks_goldeneye']  # Lista di colonne OVR
+
+                for ip, splits in federated_splits.items():
+                    train_df = splits['train']
+                    
+                    # Conta quanti sample positivi per ogni attacco
+                    # attack_counts = {col: train_df[col].sum() for col in ovr_columns if col in train_df.columns}
+                    
+                    ######INIZIO MODIFICA#######################
+                    # Conta quanti sample positivi (ora le colonne sono binarie 0/1)
+                    attack_counts = {col: int(train_df[col].sum()) for col in ovr_columns if col in train_df.columns}
+                     # 🆕 AGGIUNGI QUESTO:
+                    if ip == "169.254.169.254":
+                        logger.info(f"🔍 DEBUG {ip}:")
+                        logger.info(f"   LOIC-HTTP: {attack_counts.get('is_ddos_attacks_loic_http', 0)} samples")
+                        logger.info(f"   Totale attacchi: {sum(attack_counts.values())}")
+                        # 🆕 Verifica che siano binarie
+                        sample_val = train_df['is_ddos_attacks_loic_http'].unique()[:5]
+                        logger.info(f"   Valori esempio: {sample_val}")
+                    ######FINE MODIFICA##################
+                    if sum(attack_counts.values()) > 0:  # Se ci sono attacchi
+                        dominant_attack = max(attack_counts, key=attack_counts.get)
+                        host_specialization[ip] = {
+                            'target_column': dominant_attack,
+                            'attack_name': dominant_attack.replace('is_', '').replace('_', ' ').title(),
+                            'positive_samples': int(attack_counts[dominant_attack]),
+                            'all_counts': {k: int(v) for k, v in attack_counts.items()}
+                        }
+                    else:  # Host solo benigno
+                        host_specialization[ip] = {
+                            'target_column': None,
+                            'attack_name': 'Benign Only',
+                            'positive_samples': 0
+                        }
+
+                metadata['host_specialization'] = host_specialization
+                metadata['ovr_columns'] = ovr_columns
+                #======FINE MODIFICA============#
+                meta_file = self.base_path / "metadata.json"
+                with open(meta_file, 'w') as f:
+                    json.dump(metadata, f, indent=2)
+                
+                logger.info(f"✅ Metadata salvato in {meta_file}")
+                logger.info(f"   • Training: {len(training_label_map)} classi (binario)")
+                logger.info(f"   • Original: {len(original_label_map)} classi (completo)")
+                                
+            except Exception as e:
+                logger.warning(f"⚠️ Impossibile salvare metadata: {e}")
         
         logger.info(f"\n✅ Tutti i dataset federati salvati con successo!")
         
