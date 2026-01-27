@@ -196,72 +196,98 @@ class FederatedClient_C(Step):
         # ⚖️ CALCOLO pos_weight DINAMICO (specifico per questo client)
         # ═══════════════════════════════════════════════════════════════════
 
-        """ n_pos = (y == 1).sum()
-        n_neg = (y == 0).sum()
+        # a) DEFINIZIONE DELLA STRATEGIA:
+        weight_strategy = "smart-CL"
+        # weight_strategy = "Greedy"
         
-        if n_pos > 0:
-            pos_weight_value = n_neg / n_pos
-            # Limita il range per evitare pesi estremi
-            pos_weight_value = np.clip(pos_weight_value, 1.0, 50.0)
-        else:
-            pos_weight_value = 10.0  # Default se non ci sono positivi
-
-        pos_weight = torch.FloatTensor([pos_weight_value]).to(device)
-
-        # Crea l'istanza della loss con pos_weight specifico
-        loss_fn = loss_fn_class(pos_weight=pos_weight).to(device)
-
-        logger.info(
-            f"   ⚖️ pos_weight: {pos_weight_value:.4f} "
-            f"(positivi={n_pos}, negativi={n_neg})"
-        ) """
-        
-          # Applicazione  CLASS-BALANCED-LOSS
+        # b) CALCOLO DEI CONTEGGI COMUNI A TUTTE LE FUNZIONI:
         n_pos = (y == 1).sum()
         n_neg = (y == 0).sum()
-
         total_samples = n_pos + n_neg
 
-        pos_weight_value = compute_effective_weight(n_pos, n_neg, beta=1-(1/total_samples))
+        # c) LOGICA IF-ELSE OTTIMIZZATA:
+        if weight_strategy == "Greedy":
+            
+            logger.debug("  STRATEGIA--GREEDY (Inverse Class Frequency con Clip [2.0, 100.0] )")
+            
+            if n_pos > 0:
+                raw_weight = n_neg / n_pos
+                # Limita il range per evitare pesi estremi
+                # pos_weight_value = np.clip(raw_weight, 1.0, 50.0)
+                pos_weight_value = np.clip(raw_weight, 2.0, 100.0)
+            else:
+                pos_weight_value = 10.0  # Default se non ci sono positivi
+
+            logger.info(
+                f"   ⚖️ [GREEDY] pos_weight: {pos_weight_value:.4f} "
+                f"(positivi={n_pos}, negativi={n_neg})"
+            )
+            
+        elif weight_strategy == "smart-CL":
+        
+            logger.debug("  STRATEGIA--SMART--CLASS-BALANCED ( Parametro Beta scelto Dinamicamente )")
+
+            # Beta più basso per client con forte sbilanciamento
+            ratio = n_neg / n_pos if n_pos > 0 else 100
+            if ratio > 20:
+                beta = 0.99  # Più aggressivo
+                # beta = 0.95  # Più aggressivo
+            elif ratio > 10:
+                beta = 0.995
+                # beta = 0.97
+            else:
+                beta = 0.999  # Più conservativo
+                # beta = 0.99  # Più conservativo
+
+            # beta=0.95
+            pos_weight_value = compute_effective_weight(n_pos, n_neg, beta=beta)
+
+            logger.info(
+                f"   ⚖️ [SMART-CL] pos_weight (effective): {pos_weight_value:.2f} "
+                f"(positivi={n_pos}, negativi={n_neg}, ratio={n_neg/n_pos:.1f}, beta={beta})"
+            )
+        
+        elif weight_strategy == "CL":
+        
+            logger.debug("  STRATEGIA--CLASS-BALANCED--STANDARD ")
+
+            beta=1-(1/total_samples)
+
+            pos_weight_value = compute_effective_weight(n_pos, n_neg, beta)
+
+            logger.info(
+                f" ⚖️ [STANDARD-CL] pos_weight (effective): {pos_weight_value:.2f} "
+                f"(positivi={n_pos}, negativi={n_neg}, ratio={n_neg/n_pos:.1f}, beta={beta})"
+            )
+            
+        # d) Istanziazione Loss (comune a tutte le strategie)
         pos_weight = torch.FloatTensor([pos_weight_value]).to(device)
-
-        loss_fn = loss_fn_class(pos_weight=pos_weight).to(device)
-
-        logger.info(
-            f"   ⚖️ pos_weight (effective): {pos_weight_value:.2f} "
-            f"(pos={n_pos}, neg={n_neg}, ratio={n_neg/n_pos:.1f})"
-        )
-
-        # """ cluster_specific_weights = {
-        #     'is_bot': 8.0,              # Era 1.0 → troppo basso (60k pos vs 11k neg)
-        #     'is_ddos_attack_hoic': 0.1,  # Era 1.0 → invertito! (457k pos vs 10k neg)
-        #     'is_dos_attacks_hulk': 5.0,  # Era 1.12 → aumentato per migliorare recall
-        #     'is_infilteration': 80.0,    # Era 50.0 → aumentato (3k pos vs 3M neg)
-        #     'is_ddos_attacks_loic_http': 10.0,  # Default se presente
-        # }
-
-        # # Usa peso specifico se disponibile, altrimenti calcola dinamico
-        # if target_col in cluster_specific_weights:
-        #     pos_weight_value = cluster_specific_weights[target_col]
-        #     logger.info(f"   🎯 Usando pos_weight ottimizzato per {target_col}: {pos_weight_value}")
-        # else:
-        #     # Fallback dinamico (SENZA clipping a min=1.0)
-        #     if n_pos > 0:
-        #         pos_weight_value = n_neg / n_pos
-        #         pos_weight_value = np.clip(pos_weight_value, 0.01, 100.0)  # ✅ Permette <1
-        #         logger.info(f"   ⚙️ pos_weight calcolato dinamicamente: {pos_weight_value:.2f}")
-        #     else:
-        #         pos_weight_value = 10.0
-
-        # pos_weight = torch.FloatTensor([pos_weight_value]).to(device)
-        # loss_fn = loss_fn_class(pos_weight=pos_weight).to(device)
-
-        # logger.info(
-        #     f"   ⚖️ pos_weight finale: {pos_weight_value:.2f} "
-        #     f"(positivi={n_pos}, negativi={n_neg})"
-        # ) """
+        loss_fn = loss_fn_class(pos_weight=pos_weight).to(device) 
         
+        # pos_weight = None
+        # logger.info("   🚫 ESPERIMENTO NO-WEIGHT: Loss senza pos_weight")
         
+        if loss_fn_class.__name__ == "BinaryFocalLoss":
+            
+            gamma=2.0
+            # gamma=3.0
+            alpha=0.50
+            # alpha=0.25
+            
+            loss_fn = loss_fn_class(
+                gamma=gamma,              # Standard per Focal Loss
+                # alpha=0.25,             # Peso classe positiva
+                alpha=alpha,             # Peso classe positiva
+                pos_weight=pos_weight   # Eredita da strategia weight
+            ).to(device)
+            
+            logger.info(f"   🔥 Focal Loss: gamma={gamma}, alpha={alpha}, pos_weight={pos_weight_value:.2f}")
+            # logger.info(f"   🔥 Focal Loss: gamma={gamma}, alpha={alpha}, pos_weight=None")
+        else:
+            loss_fn = loss_fn_class(pos_weight=pos_weight).to(device)
+            # loss_fn = loss_fn_class().to(device)
+            # logger.info(f"   🚫 BCE Loss: pos_weight=None")
+
         
         ###################################################################
         # ⭐ FIX: Controlla se il dataset è vuoto
@@ -410,8 +436,7 @@ class FederatedClient_C(Step):
             if scheduler is not None:
                 scheduler.step(avg_loss)
                 current_lr = local_optimizer.param_groups[0]['lr']
-                logger.debug(f" 📉 [DEBUG] Ep {epoch+1}: LR={current_lr:.6f} | "
-                            f"Patience Count={scheduler.num_bad_epochs}/{scheduler.patience}")
+                logger.debug(f" 📉 [DEBUG] Ep {epoch+1}: LR={current_lr:.6f} | " f"Patience Count={scheduler.num_bad_epochs}/{scheduler.patience}")
                 if epoch == 0 or current_lr != local_optimizer.param_groups[0]['lr']:
                     logger.debug(f"         📉 LR: {current_lr:.4e}")
             else:

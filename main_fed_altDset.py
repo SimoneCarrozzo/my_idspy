@@ -60,7 +60,6 @@ from src.idspy.real_fed_learn.steps.io.fed_saver import SaveFederatedData
 #     ApplyFitAwareToFederatedSplits
 # )
 from src.idspy.real_fed_learn.core.fed_split import(
-    IdentifyTopHosts_Orig,
     IdentifyTopHosts,
     SplitByHosts,
     FederatedSplits,
@@ -108,27 +107,24 @@ def main():
     
     # directory base comune a tutti
     BASE_DIR = Path("c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp")
-    BASE_DIR2 = Path("c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs_federated/Log_to_final/log6")
-    
-    """ 
-    BASE_DIR2 = Path("c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs_federated/Log_to_final/log_try_alt")
+    BASE_DIR2 = Path("c:/Users/simon/OneDrive/Documenti/TESI_UNI/SetUp/Modelli_Salvati/logs_federated2/attacks_log")
     
     # Percorsi
-    RAW_DATA_PATH = BASE_DIR / "dataset_v2/cic_2018_v2.csv"
-    FEDERATED_DATA_PATH = BASE_DIR / "dataset_processati_federati/log_alternativo"
-    """
+    RAW_DATA_PATH = BASE_DIR / "dataset_v2/nb15_v2.csv"
+    FEDERATED_DATA_PATH = BASE_DIR / "dataset_processati_federati/Dset_nb15_v2/log1"
     
-    # Percorsi
-    RAW_DATA_PATH = BASE_DIR / "dataset_v2/cic_2018_v2.csv"
-    FEDERATED_DATA_PATH = BASE_DIR / "dataset_processati_federati/log9-try"
+    # LOGS_PATH = BASE_DIR2 / "Exploits/smartCL/1_smartCL_100_LR0005"
+    # LOGS_PATH = BASE_DIR2 / "Exploits/Greedy/1_Greedy_100_LR0005"
     
-    # LOGS_PATH = BASE_DIR2 / "ddos_hoic/Greedy/Greedy_100_LR0005_factor06" ##nel scheduler era 0.0001
-    # LOGS_PATH = BASE_DIR2 / "ddos_hoic/no_weight_strategy/NWS_100_LR0003_factor05_Sim085" ##nel scheduler era 0.0001
-    # LOGS_PATH = BASE_DIR2 / "ddos_loic_http/smartCL/smartCL_100_LR0004_factor06_Sim085"
+    # LOGS_PATH = BASE_DIR2 / "Fuzzers/smartCL/1_smartCL_100_LR0005"
+    # LOGS_PATH = BASE_DIR2 / "Fuzzers/Greedy/1_Greedy_100_LR0005"
     
-    LOGS_PATH = BASE_DIR2 / "ddos_loic_udp/smartCL/smartCL_100_LR0003_factor05_Sim085"
+    # LOGS_PATH = BASE_DIR2 / "Generic/smartCL/1_smartCL_100_LR0005"
+    #LOGS_PATH = BASE_DIR2 / "Generic/Greedy/1_Greedy_100_LR0005"
     
-    # LOGS_PATH = BASE_DIR2 / "ddos_hulk/smartCL/2_smartCL-BFL_100_LR001"
+    # LOGS_PATH = BASE_DIR2 / "Reconnaissance/smartCL/1_smartCL_100_LR0005"
+    LOGS_PATH = BASE_DIR2 / "Reconnaissance/Greedy/1_Greedy_100_LR0005"
+    
     
     # Parametri FL
     NUM_ROUNDS = 15 #4#11 #DA            # Numero di round federati
@@ -137,7 +133,7 @@ def main():
     CLIENT_FRACTION = 1.0     # Frazione client per round (1.0 = tutti)
     
     # LEARNING_RATE = 0.001 #DA 0.002-->0.0005-->0.001     # Learning rate per ottimizzatore
-    LEARNING_RATE = 0.0003 
+    LEARNING_RATE = 0.0005 
     
     # ═══════════════════════════════════════════════════════════════════
     # 1️⃣ DEFINIZIONE DELLO SCHEMA
@@ -205,7 +201,8 @@ def main():
                                out_scope="data"
                         ),
                 CreateOneVsRestLabels(
-                                        attack_types=["DDOS attack-HOIC", "DoS attacks-Hulk", "Bot", "Infilteration", "DDoS attacks-LOIC-HTTP", "DDOS attack-LOIC-UDP", "DoS attacks-GoldenEye"],  
+                                        # attack_types=["DDOS attack-HOIC", "DoS attacks-Hulk", "Bot", "Infilteration", "DDoS attacks-LOIC-HTTP", "DDOS attack-LOIC-UDP", "DoS attacks-GoldenEye"],  
+                                        attack_types=["Analysis", "Backdoor", "DoS", "Exploits", "Fuzzers", "Shellcode", "Worms", "Reconnaissance", "Generic"],  
                                         in_scope="data",
                                         out_scope="data"
                                     ),
@@ -236,7 +233,7 @@ def main():
                 fit_aware_pipeline,
                                 
                 # C. Identificazione Top Hosts
-                IdentifyTopHosts_Orig(
+                IdentifyTopHosts(
                     num_hosts=10,  # 🎯 Prendi i 10 host con più traffico
                     src_ip_col='IPV4_SRC_ADDR',
                     dst_ip_col='IPV4_DST_ADDR',
@@ -436,15 +433,14 @@ def main():
         # ──────────────────────────────────────────────────────────────────────────────
         # 2️⃣ GESTIONE METADATA E FILTRAGGIO HOST (SELEZIONE ATTIVA)
         # ──────────────────────────────────────────────────────────────────────────────
-        ATTACK_ID = 3  # ← CAMBIA SOLO QUESTO NUMERO!
+        ATTACK_ID = 4  # ← CAMBIA SOLO QUESTO NUMERO!
 
         # 📋 Mappatura ID → Nome Attacco
         ATTACK_MAPPING = {
-            1: "is_ddos_attack_hoic",
-            2: "is_ddos_attacks_loic_http",
-            3: "is_ddos_attack_loic_udp",
-            4: "is_dos_attacks_hulk",
-            5: "is_dos_attacks_goldeneye",
+            1: "is_exploits",
+            2: "is_fuzzers",
+            3: 'is_generic',
+            4: 'is_reconnaissance',
         }
 
         # ✅ Validazione + Selezione
@@ -630,10 +626,8 @@ def main():
             'type': torch.optim.lr_scheduler.ReduceLROnPlateau,
             'kwargs': {
                 'mode': 'min',
-                # 'factor': 0.6,#0.5,
                 'factor': 0.5,
                 'patience': 1,#2,  # ← Più aggressivo nel federato
-                # 'threshold': 0.0001,#0.001, #da 0.001 a 0.0001
                 'threshold': 0.001, #da 0.001 a 0.0001
                 'min_lr': 1e-6,
             }

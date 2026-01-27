@@ -250,7 +250,8 @@ class SaveFederatedData(Step):
                 # Calcola attacco dominante per ogni host DDoS attacks-LOIC-HTTP
                 host_specialization = {}
                 ovr_columns = ['is_ddos_attack_hoic', 'is_dos_attacks_hulk', 'is_bot', 'is_infilteration', 'is_ddos_attacks_loic_http', 'is_ddos_attack_loic_udp', 'is_dos_attacks_goldeneye']  # Lista di colonne OVR
-
+                # ovr_columns = ['is_analysis', 'is_backdoor', 'is_generic','is_reconnaissance','is_dos', 'is_exploits', 'is_fuzzers', 'is_shellcode', 'is_worms']  # Lista di colonne OVR
+                
                 for ip, splits in federated_splits.items():
                     train_df = splits['train']
                     

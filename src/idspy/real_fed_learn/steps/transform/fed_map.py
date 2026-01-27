@@ -196,6 +196,17 @@ class CreateOneVsRestLabels(Step):
             "DDOS attack-LOIC-UDP",
             "DoS attacks-GoldenEye"
         ]
+        # self.attack_types = attack_types or [
+        #     "Analysis", 
+        #     "Backdoor",
+        #     "Generic",
+        #     "Reconnaissance",
+        #     "DoS",
+        #     "Exploits",
+        #     "Fuzzers",
+        #     "Shellcode",
+        #     "Worms",            
+        # ]
         self.original_col = original_col
         
         super().__init__(

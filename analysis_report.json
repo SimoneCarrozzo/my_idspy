@@ -1,0 +1,234 @@
+[
+    {
+        "filename": "checkpoint_round_0.pt",
+        "file_size_mb": 4.52,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 0
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_1.pt",
+        "file_size_mb": 8.29,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 1
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_10.pt",
+        "file_size_mb": 42.2,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 10
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_11.pt",
+        "file_size_mb": 45.97,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 11
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_12.pt",
+        "file_size_mb": 49.73,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 12
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_13.pt",
+        "file_size_mb": 53.5,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 13
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_14.pt",
+        "file_size_mb": 57.27,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 14
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_2.pt",
+        "file_size_mb": 12.06,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 2
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_3.pt",
+        "file_size_mb": 15.83,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 3
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_4.pt",
+        "file_size_mb": 19.59,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 4
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_5.pt",
+        "file_size_mb": 23.36,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 5
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_6.pt",
+        "file_size_mb": 27.13,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 6
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_7.pt",
+        "file_size_mb": 30.9,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 7
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_8.pt",
+        "file_size_mb": 34.66,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 8
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "checkpoint_round_9.pt",
+        "file_size_mb": 38.43,
+        "content_type": "<class 'dict'>",
+        "hyperparameters": {
+            "round": 9
+        },
+        "model_structure": {
+            "total_layers": 19,
+            "input_layer_hint": "feature_extractor.net.0.weight",
+            "output_layer_hint": "embedding.embeddings.10.weight",
+            "contains_classifier_head": true,
+            "contains_feature_extractor": true
+        }
+    },
+    {
+        "filename": "global_model_final.pt",
+        "file_size_mb": 0.76,
+        "content_type": "<class 'collections.OrderedDict'>",
+        "hyperparameters": {},
+        "model_structure": "Unknown"
+    }
+]

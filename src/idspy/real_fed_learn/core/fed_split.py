@@ -27,7 +27,7 @@ in base agli indirizzi IP host.
 # STEP 1: IDENTIFICO I TOP HOSTS
 # ============================================================================
 
-class IdentifyTopHosts(Step):
+class IdentifyTopHosts_Orig(Step):
     """
     Identifica gli N indirizzi IP più frequenti nel set di dati.
 
@@ -119,8 +119,226 @@ class IdentifyTopHosts(Step):
         logger.info(f"\n{stats_df.to_string()}")
         
         return {"top_ips": top_ips, "ip_statistics": stats_df}
+    
+class IdentifyTopHosts_0(Step):
+    """
+    LA FUNZIONE ORIGINALE SVOLGEVA QUESTO: Identifica gli N indirizzi IP più frequenti nel set di dati.
+    Conta sia le occorrenze di origine che di destinazione per determinare gli host
+    con il volume di traffico più elevato.
 
+    LA FUNZIONE CORRENTE INVECE: SELEZIONA IP CON PIù ATTACCHI, QUINDI PER VOLUME DI PRENDENDO GLI ATTACCANTI VERI.
+    """
+    
+    def __init__(
+        self,
+        num_hosts: int = 10,
+        src_ip_col: str = 'IPV4_SRC_ADDR',
+        dst_ip_col: str = 'IPV4_DST_ADDR',
+        attack_col: str = 'Attack',  # 🆕 Parametro che andava aggiunto
+        in_scope: str = "data",
+        out_scope: str = "federated",
+        name: Optional[str] = None,
+    ):
+        self.num_hosts = num_hosts
+        self.src_ip_col = src_ip_col
+        self.dst_ip_col = dst_ip_col
+        
+        self.attack_col = attack_col # 🆕 di conseguenza anche questo va aggiunto per il conteggio delle etichette
+        
+        super().__init__(
+            name=name or "identify_top_hosts",
+            in_scope=in_scope,
+            out_scope=out_scope,
+        )
+    
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(top_ips=list, ip_statistics=pd.DataFrame)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        
+        logger.info(f"Identifico i top {self.num_hosts} hosts dal traffico di volume più elevato...")
+        
+        # 🆕 VALIDAZIONE robusta che verifica che le colonne esistano
+        required_cols = [self.src_ip_col, self.dst_ip_col, self.attack_col]
+        missing_cols = [col for col in required_cols if col not in root.columns]
+        if missing_cols:
+            raise ValueError(f"Colonne mancanti nel dataset: {missing_cols}")
+        
+        # Count occurrences as source and destination
+        src_counts = Counter(root[self.src_ip_col])
+        dst_counts = Counter(root[self.dst_ip_col])
+        
+        # Combine counts (total traffic per IP)
+        total_counts = Counter()
+        for ip in set(list(src_counts.keys()) + list(dst_counts.keys())):
+            total_counts[ip] = src_counts.get(ip, 0) + dst_counts.get(ip, 0)
+            
+        # 🆕 VALIDAZIONE robusta che verifica che ci siano abbastanza IP
+        num_unique_ips = len(total_counts)
+        if num_unique_ips < self.num_hosts:
+            logger.warning(
+                f"⚠️ Richiesti {self.num_hosts} hosts ma trovati solo {num_unique_ips} IP unici. "
+                f"Usando tutti gli {num_unique_ips} disponibili."
+            )
+            self.num_hosts = num_unique_ips
+        
+        # Get top N IPs
+        top_ips = [ip for ip, count in total_counts.most_common(self.num_hosts)]
+        
+        # Create statistics DataFrame
+        stats_data = []
+        
+        for ip in top_ips:
+            bidirectional_data = root[
+                (root[self.src_ip_col] == ip) | 
+                (root[self.dst_ip_col] == ip)
+            ]
+            
+            # 🆕 MIGLIORATA la gestione dei conteggi che ora è più robusta
+            attack_counts = bidirectional_data[self.attack_col].value_counts()
+            # benign_count = attack_counts.get('Benign', 0)
+            benign_count = attack_counts.get(0, 0)
+            attack_count = len(bidirectional_data) - benign_count
+            
+            stats_data.append({
+                'ip_address': ip,
+                'total_flows': len(bidirectional_data),
+                'src_flows': src_counts.get(ip, 0),
+                'dst_flows': dst_counts.get(ip, 0),
+                'benign_flows': benign_count,
+                'attack_flows': attack_count,
+                'attack_percentage': (attack_count / len(bidirectional_data) * 100) if len(bidirectional_data) > 0 else 0
+            })
+        
+        stats_df = pd.DataFrame(stats_data)
+        logger.info(f"Top {self.num_hosts} hosts identificati")
+        logger.info(f"\n{stats_df.to_string()}")
+        
+        return {"top_ips": top_ips, "ip_statistics": stats_df}
 
+class IdentifyTopHosts(Step):
+    """
+    LA FUNZIONE ORIGINALE SVOLGEVA QUESTO: Identifica gli N indirizzi IP più frequenti nel set di dati.
+    Conta sia le occorrenze di origine che di destinazione per determinare gli host
+    con il volume di traffico più elevato.
+
+    LA FUNZIONE CORRENTE INVECE: SELEZIONA IP CON PIù ATTACCHI, QUINDI PER VOLUME DI ATTACCHI, PRENDENDO GLI ATTACCANTI VERI.
+    
+    Dunque, se prima la funzione contava tutto il traffico, sia benigno che attacchi per poi ordinare per volume totale, 
+    ciò che accadeva era che molto probabilmente andava a selezionare i server più attivi (DNS, web, etc.) che spesso 
+    hanno ZERO attacchi ma tanto traffico normale. Esempio dal tuo dataset:
+    
+        IP 59.166.0.1 aveva 230k flussi → selezionato ✅ --> Ma TUTTI erano benigni → inutile per FL! ❌
+    """
+    
+    def __init__(
+        self,
+        num_hosts: int = 10,
+        src_ip_col: str = 'IPV4_SRC_ADDR',
+        dst_ip_col: str = 'IPV4_DST_ADDR',
+        attack_col: str = 'Attack',  # 🆕 Parametro che andava aggiunto
+        in_scope: str = "data",
+        out_scope: str = "federated",
+        name: Optional[str] = None,
+    ):
+        self.num_hosts = num_hosts
+        self.src_ip_col = src_ip_col
+        self.dst_ip_col = dst_ip_col
+        
+        self.attack_col = attack_col # 🆕 di conseguenza anche questo va aggiunto per il conteggio delle etichette
+        
+        super().__init__(
+            name=name or "identify_top_hosts",
+            in_scope=in_scope,
+            out_scope=out_scope,
+        )
+    
+    @Step.requires(root=pd.DataFrame)
+    @Step.provides(top_ips=list, ip_statistics=pd.DataFrame)
+    def run(self, state: State, root: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        
+        logger.info(f"Identifico i top {self.num_hosts} hosts dal traffico di volume più elevato...")
+        
+        # Validazione
+        required_cols = [self.src_ip_col, self.dst_ip_col, self.attack_col]
+        missing_cols = [col for col in required_cols if col not in root.columns]
+        if missing_cols:
+            raise ValueError(f"Colonne mancanti nel dataset: {missing_cols}")
+        
+        # Count occurrences
+        src_counts = Counter(root[self.src_ip_col])
+        dst_counts = Counter(root[self.dst_ip_col])
+        
+        # ✅ NUOVO: Conta ATTACCHI per IP invece di traffico totale
+        attack_counts_per_ip = {}
+        benign_counts_per_ip = {}
+        total_counts_per_ip = {}
+        
+        unique_ips = set(list(src_counts.keys()) + list(dst_counts.keys()))
+        
+        for ip in unique_ips:
+            bidirectional_data = root[
+                (root[self.src_ip_col] == ip) | 
+                (root[self.dst_ip_col] == ip)
+            ]
+            
+            # Conta benign (0) e attack (1)
+            label_counts = bidirectional_data[self.attack_col].value_counts()
+            # Per ogni IP conta separatamente:
+            benign_count = label_counts.get(0, 0)  # Traffico normale
+            attack_count = label_counts.get(1, 0)  # Attacchi veri
+            
+            attack_counts_per_ip[ip] = attack_count
+            benign_counts_per_ip[ip] = benign_count
+            total_counts_per_ip[ip] = len(bidirectional_data)
+        
+        # ✅ STRATEGIA: Seleziona IP con PIÙ ATTACCHI, CIOè ORDINA PER NUMERO DI ATTACCHI 
+        # (non più traffico totale, che favorisce server normali)
+        sorted_by_attacks = sorted(
+            attack_counts_per_ip.items(), 
+            key=lambda x: x[1], 
+            reverse=True
+        )
+        
+        # Filtra IP con ALMENO qualche attacco
+        ips_with_attacks = [ip for ip, count in sorted_by_attacks if count > 0]
+        
+        # seleziona gli IP con il MAGGIOR NUMERO DI ATTACCHI, quindi prende gli IP 
+        # degli attaccanti veri. Se non ci sono abbastanza IP con attacchi, 
+        # li completa con quelli benigni.
+        if len(ips_with_attacks) < self.num_hosts:
+            logger.warning(
+                f"⚠️ Trovati solo {len(ips_with_attacks)} IP con attacchi "
+                f"(richiesti {self.num_hosts}). Completamento con IP normali..."
+            )
+            # Completa con IP normali se necessario
+            ips_only_benign = [ip for ip, count in sorted_by_attacks if count == 0]
+            sorted_by_total = sorted(
+                [(ip, total_counts_per_ip[ip]) for ip in ips_only_benign],
+                key=lambda x: x[1],
+                reverse=True
+            )
+            top_ips = ips_with_attacks + [ip for ip, _ in sorted_by_total[:self.num_hosts - len(ips_with_attacks)]]
+        else:
+            top_ips = ips_with_attacks[:self.num_hosts]
+        
+        # Create statistics DataFrame
+        stats_data = []
+        for ip in top_ips:
+            stats_data.append({
+                'ip_address': ip,
+                'total_flows': total_counts_per_ip[ip],
+                'src_flows': src_counts.get(ip, 0),
+                'dst_flows': dst_counts.get(ip, 0),
+                'benign_flows': benign_counts_per_ip[ip],
+                'attack_flows': attack_counts_per_ip[ip],
+                'attack_percentage': (attack_counts_per_ip[ip] / total_counts_per_ip[ip] * 100) if total_counts_per_ip[ip] > 0 else 0
+            })
+        
+        stats_df = pd.DataFrame(stats_data)
+        logger.info(f"Top {self.num_hosts} hosts identificati (per volume attacchi)")
+        logger.info(f"\n{stats_df.to_string()}")
+        
+        return {"top_ips": top_ips, "ip_statistics": stats_df}
 # ============================================================================
 # STEP 2: SPLIT PER HOSTS (BIDIREZIONALE)
 # ============================================================================
@@ -560,7 +778,8 @@ class AnalyzeNonIID(Step):
         logger.info("🎯 SPECIALIZZAZIONE AUTOMATICA DEI CLIENT:")
         logger.info("="*70)
 
-        ovr_cols = ['is_ddos_attack_hoic', 'is_dos_attacks_hulk', 'is_bot', 'is_infilteration', 'is_ddos_attacks_loic_http']
+        # ovr_cols = ['is_ddos_attack_hoic', 'is_dos_attacks_hulk', 'is_bot', 'is_infilteration', 'is_ddos_attacks_loic_http']
+        ovr_cols = ['is_analysis', 'is_backdoor', 'is_dos', 'is_exploits', 'is_fuzzers', 'is_shellcode', 'is_worms']  # Lista di colonne OVR
         for ip, data in federated_datasets.items():
             # attack_counts = {col: data[col].sum() for col in ovr_cols if col in data.columns}
             attack_counts = {col: int(data[col].sum()) for col in ovr_cols if col in data.columns}

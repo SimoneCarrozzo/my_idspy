@@ -130,3 +130,52 @@ class FocalLoss(BaseLoss):
         focal_loss = ((1 - pt) ** self.gamma) * ce_loss
 
         return self._reduce(focal_loss)
+    
+class BinaryFocalLoss(BaseLoss):
+    """
+    Focal Loss per classificazione binaria.
+    Utile per: hard examples (campioni difficili da classificare).
+    """
+    def __init__(
+        self,
+        gamma: float = 2.0,         # Focus su hard examples
+        alpha: float = 0.25,        # Bilanciamento classi (opzionale)
+        pos_weight: Optional[Tensor] = None,  # Come BCEWithLogits
+        reduction: str = "mean",
+    ) -> None:
+        super().__init__(reduction)
+        self.gamma = gamma
+        self.alpha = alpha
+        self.pos_weight = pos_weight
+    
+    def forward(self, pred: Tensor, target: Tensor) -> Tensor:
+        """
+        Args:
+            pred: logits (NON sigmoid), shape [batch_size]
+            target: labels binari {0, 1}, shape [batch_size]
+        """
+        # Applica sigmoid per ottenere probabilità
+        p = torch.sigmoid(pred)
+        
+        # Binary Cross Entropy manuale
+        bce = F.binary_cross_entropy_with_logits(
+            pred, target, 
+            pos_weight=self.pos_weight,
+            reduction='none'
+        )
+        
+        # Calcola pt (probabilità corretta)
+        # Se target=1 → pt=p, se target=0 → pt=(1-p)
+        pt = torch.where(target == 1, p, 1 - p)
+        
+        # Focal term: (1 - pt)^gamma
+        focal_term = (1 - pt) ** self.gamma
+        
+        # Alpha balancing (opzionale)
+        if self.alpha is not None:
+            alpha_t = torch.where(target == 1, self.alpha, 1 - self.alpha)
+            focal_loss = alpha_t * focal_term * bce
+        else:
+            focal_loss = focal_term * bce
+        
+        return self._reduce(focal_loss)

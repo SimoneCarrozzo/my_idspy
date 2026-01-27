@@ -139,10 +139,10 @@ class FederatedServer_C(Step):
             weights_dict = update['weights']
             
             # Cerca classifier_head (ultimo layer)
-            last_layer_key = 'classifier_head.weight'  # Nome tipico PyTorch
+            last_layer_key = 'classifier_head.weight'  
             
             if last_layer_key in weights_dict:
-                w = weights_dict[last_layer_key].cpu().numpy().flatten()
+                w = weights_dict[last_layer_key].cpu().numpy().flatten()     # Prendo SOLO l'ultimo layer (quello decisionale)
                 last_layer_weights.append(w)
                 client_ids.append(update['client_id'])
             else:
@@ -166,7 +166,7 @@ class FederatedServer_C(Step):
             num_clusters = 1
         else:
             # Step 2: Calcola matrice di similarità (cosine)
-            similarity_matrix = cosine_similarity(last_layer_weights)
+            similarity_matrix = cosine_similarity(last_layer_weights) #quanto sono "simili i pesi di ogni coppia di client"
             
             logger.debug(f"   📊 Similarity matrix shape: {similarity_matrix.shape}")
             logger.debug(f"   📊 Similarity range: [{similarity_matrix.min():.3f}, {similarity_matrix.max():.3f}]")
@@ -174,9 +174,12 @@ class FederatedServer_C(Step):
             # Step 3: Clustering basato su threshold
             # Approccio: raggruppa client con similarità > THRESHOLD
             
-            SIMILARITY_THRESHOLD = 0.80  # ← Parametro critico da tuning
+            SIMILARITY_THRESHOLD = 0.85  # ← Parametro critico da tuning
+            # SIMILARITY_THRESHOLD = 0.80  # ← Parametro critico da tuning
+            # SIMILARITY_THRESHOLD = 0.75  # ← Parametro critico da tuning
+            # SIMILARITY_THRESHOLD = 0.70  # ← Parametro critico da tuning
             
-            # Inizializza: ogni client è nel suo cluster
+            # Inizializza: ogni client è nel suo cluster / è un cluster
             cluster_labels = np.arange(len(client_ids))
             cluster_map = {i: i for i in range(len(client_ids))}
             
@@ -259,7 +262,7 @@ class FederatedServer_C(Step):
         cluster_aggregations = {}
         
         for cluster_id in range(num_clusters):
-            # Filtra client del cluster
+            # Filtra client del cluster --> client che ha visto + esempi è + affidabile
             cluster_updates = [
                 client_updates[i] for i in range(len(client_updates)) 
                 if cluster_labels[i] == cluster_id
@@ -338,4 +341,114 @@ class FederatedServer_C(Step):
         logger.debug(f"   💾 Mapping client→cluster: {dict(zip(client_ids, cluster_labels.tolist()))}")
         
         return global_weights  
- 
+
+#=============================================================# 
+#=============================================================# 
+#=============================================================# 
+class Classic_FedServer(Step):
+    def __init__(
+        self,
+        aggregation_method: str = "classic_fedavg",  # "fedavg" o "fedprox" (futuro)
+        in_scope: str = "federated",
+        out_scope: str = "federated",
+        name: Optional[str] = None,
+    ):
+        self.aggregation_method = aggregation_method
+        
+        super().__init__(
+            name=name or "classic_fed_server",
+            in_scope=in_scope,
+            out_scope=out_scope,
+        )
+    
+    @Step.requires(
+        client_updates=list,  # Lista di dict con {weights, num_samples}
+        global_model=nn.Module,
+    )
+    @Step.provides(
+        aggregated_weights=dict,
+        aggregation_metrics=dict,
+    )
+    def run(
+        self,
+        state: State,
+        client_updates: list,  # [{'weights': {...}, 'num_samples': 1000}, ...]
+        global_model: nn.Module,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Aggregazione FedAvg Standard (No Clustering).
+        """
+        
+        logger.info(f"🛰️ Classic Server: Aggregando {len(client_updates)} client (FedAvg globale)...")
+        
+        if len(client_updates) == 0:
+            raise ValueError("Nessun client update ricevuto!")
+        
+        # ✅ AGGIUNGI QUESTI LOG:
+        logger.debug(f"🔍 [Classic_FedServer] Ricevuti {len(client_updates)} client updates")
+        logger.debug(f"🔍 [Classic_FedServer] Totale samples: {sum(u['num_samples'] for u in client_updates)}")
+
+        # Verifica integrità pesi
+        first_update = client_updates[0]
+        logger.debug(f"🔍 [Classic_FedServer] Keys nei pesi: {list(first_update['weights'].keys())[:5]}...")  # Prime 5
+        # ─────────────────────────────────────────────────────────────
+        # 2️⃣ AGGREGAZIONE: MEDIA PESATA (FedAvg Classico)
+        # ─────────────────────────────────────────────────────────────
+
+        if self.aggregation_method == "classic_fedavg":
+            aggregated_weights = self._classic_fedavg(
+                client_updates=client_updates,  # ⬅️ Passa la lista completa
+            )
+        else:
+            raise NotImplementedError(
+                f"Metodo {self.aggregation_method} non implementato"
+            )
+        
+        # ─────────────────────────────────────────────────────────────
+        # 3️⃣ METRICHE AGGREGAZIONE
+        # ─────────────────────────────────────────────────────────────
+        aggregation_metrics = {
+                'num_clients': len(client_updates),
+                'total_samples': sum(u['num_samples'] for u in client_updates),
+                'aggregation_method': 'classic_fedavg',
+                'num_clusters': 1,  # ← SEMPRE 1 (no clustering)
+            }
+        
+        logger.info(f"✅ Classic Server: Aggregazione completata (modello globale unico)")
+        
+        return {
+            'aggregated_weights': aggregated_weights,
+            'aggregation_metrics': aggregation_metrics,
+        }
+    
+        # ─────────────────────────────────────────────────────────────
+        # federated-classico
+        # ─────────────────────────────────────────────────────────────
+    def _classic_fedavg(self, client_updates: list) -> dict:
+        """FedAvg standard: media pesata su num_samples"""
+        logger.info("   📊 FedAvg Classico (NO clustering)...")
+        
+        total_samples = sum(u['num_samples'] for u in client_updates)
+        
+        # ✅ AGGIUNGI QUESTO LOG:
+        logger.debug(f"🔍 [FedAvg] Total samples per aggregazione: {total_samples}")
+        logger.debug(f"🔍 [FedAvg] Distribuzione samples: {[u['num_samples'] for u in client_updates]}")
+        
+        aggregated = {}
+        first_weights = client_updates[0]['weights']
+        
+        for key in first_weights.keys():
+            weighted_sum = sum(
+                (u['num_samples'] / total_samples) * u['weights'][key]
+                for u in client_updates
+            )
+            aggregated[key] = weighted_sum
+                
+        logger.info(f"   ✅ Aggregati {len(client_updates)} client in modello globale")
+    
+        # ✅ AGGIUNGI QUESTO LOG:
+        logger.debug(f"🔍 [FedAvg] Aggregated weights keys: {len(aggregated)}")
+        logger.debug(f"🔍 [FedAvg] Sample weight shape: {list(aggregated.values())[0].shape if aggregated else 'EMPTY'}")
+        
+        return aggregated
+        

@@ -379,10 +379,28 @@ class ClusterPlotMetrics_C(Step):
         self._plot_num_clusters_evolution(state)
         
         # ⚠️ Similarity richiede dati dal server (implementare dopo)
-        # self._plot_similarity_metrics(state)
+        self._plot_similarity_metrics(state)
         
         logger.info(f"✅ Grafici salvati in: {self.output_dir}")
         return {"plots_generated": True}
+    
+    @staticmethod
+    def _format_small_value(val: float) -> str:
+        """
+        Formatta valori piccoli in modo intelligente.
+        - Se < 0.001 → notazione scientifica (1.2e-5)
+        - Se >= 0.001 → formato decimale (0.0123)
+        """
+        if val == 0:
+            return '0'
+        elif abs(val) < 1e-3:
+            # Notazione scientifica compatta
+            formatted = f'{val:.1e}'
+            # Rimuovi lo zero superfluo: e-05 → e-5
+            formatted = formatted.replace('e-0', 'e-').replace('e+0', 'e+')
+            return formatted
+        else:
+            return f'{val:.4f}'
     
     
     def _extract_cluster_data(self) -> Dict:
@@ -540,6 +558,107 @@ class ClusterPlotMetrics_C(Step):
         
         ax.fill_between(rounds, 0, std_losses, alpha=0.2, color='#F4442E')
         
+        # ═══════════════════════════════════════════════════════════════
+        # ✅ NUOVO: Posizionamento intelligente dei label
+        # ═══════════════════════════════════════════════════════════════
+        
+        # Calcola limiti dell'asse Y (prima del rendering)
+        max_std = max(std_losses) if std_losses else 1e-5
+        
+        # Imposta Y limit in modo da vedere bene i dati
+        # Se max < 1e-4, usa scala adatta ai valori piccoli
+        if max_std < 1e-4:
+            y_upper = max_std * 1.3  # 30% margin sopra il max
+        else:
+            y_upper = max(max_std * 1.2, 1e-4)  # Almeno 1e-4 per visibilità
+        
+        ax.set_ylim([0, y_upper])
+        
+        # Offset dinamico (3% del range)
+        offset = y_upper * 0.03
+        
+        # Threshold per posizionamento sotto (se supera 85% della griglia)
+        y_threshold = y_upper * 0.85
+        
+        for r, std in zip(rounds, std_losses):
+            # ✅ Formatta valore con notazione scientifica se necessario
+            label_text = self._format_small_value(std)
+            
+            # ✅ Posiziona sotto se il marker è troppo alto
+            if std > y_threshold:
+                y_pos = std - offset
+                v_align = 'top'
+            else:
+                y_pos = std + offset
+                v_align = 'bottom'
+            
+            ax.text(r, y_pos, label_text, 
+                    ha='center', va=v_align, 
+                    fontsize=14, fontweight='bold')
+        
+        # ═══════════════════════════════════════════════════════════════
+        # ✅ NUOVO: Formattazione asse Y con notazione scientifica
+        # ═══════════════════════════════════════════════════════════════
+        
+        from matplotlib.ticker import FuncFormatter
+        
+        def y_formatter(val, pos):
+            """Formatta asse Y con notazione scientifica per valori piccoli"""
+            if val == 0:
+                return '0'
+            elif val < 1e-3:
+                return f'{val:.1e}'.replace('e-0', 'e-')
+            else:
+                return f'{val:.4f}'
+        
+        ax.yaxis.set_major_formatter(FuncFormatter(y_formatter))
+        
+        # ═══════════════════════════════════════════════════════════════
+        
+        ax.set_xlabel('Rounds', fontweight='bold', fontsize=18)
+        ax.set_ylabel('Standard Deviation of Loss', fontweight='bold', fontsize=18)
+        ax.set_title('Loss Variance Between Clients (Lower = Better Convergence)', 
+                    fontweight='bold', fontsize=22, pad=15)
+        ax.set_xticks(rounds)
+        ax.set_xticklabels([f"R{r}" for r in rounds], fontsize=16)
+        ax.tick_params(axis='y', labelsize=16)
+        ax.grid(True, alpha=0.4, linestyle='--', linewidth=1.2)
+        ax.legend(fontsize=15, frameon=True, shadow=True)
+        
+        plt.tight_layout()
+        fig.savefig(self.output_dir / "std_loss_evolution.png", 
+                    dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        logger.info("  ✅ Grafico STD Loss salvato")
+    
+    """  def _plot_std_loss_evolution(self):
+        
+        # Mostra std_loss tra client per round.
+        # Più basso = più convergenza (clustering funziona).
+        
+        fig, ax = plt.subplots(figsize=(16, 9))
+        
+        rounds = []
+        std_losses = []
+        
+        for r in self.rounds_history:
+            if 'round_metrics' in r and 'std_loss' in r['round_metrics']:
+                rounds.append(r['round_num'])
+                std_losses.append(r['round_metrics']['std_loss'])
+        
+        if not rounds:
+            logger.warning("⚠️ Nessun dato std_loss disponibile")
+            plt.close(fig)
+            return
+        
+        # Plot linea con area riempita
+        ax.plot(rounds, std_losses, 
+                marker='D', color='#F4442E', linewidth=3.5, 
+                markersize=12, label='STD Loss', 
+                markerfacecolor='white', markeredgewidth=2.5)
+        
+        ax.fill_between(rounds, 0, std_losses, alpha=0.2, color='#F4442E')
+        
         # Aggiungi valori numerici
         for r, std in zip(rounds, std_losses):
             ax.text(r, std + max(std_losses)*0.03, f'{std:.4f}', 
@@ -559,7 +678,7 @@ class ClusterPlotMetrics_C(Step):
         fig.savefig(self.output_dir / "std_loss_evolution.png", 
                     dpi=300, bbox_inches='tight')
         plt.close(fig)
-        logger.info("  ✅ Grafico STD Loss salvato")
+        logger.info("  ✅ Grafico STD Loss salvato") """
     
     def _plot_num_clusters_evolution(self, state: State):
         """
